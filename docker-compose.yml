@@ -1,0 +1,57 @@
+﻿services:
+  chroma:
+    image: chromadb/chroma:1.0.7
+    container_name: portfolio-chroma
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /data
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: portfolio-api
+    env_file:
+      - .env
+    depends_on:
+      - chroma
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data:/app/data
+
+  ui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: portfolio-ui
+    env_file:
+      - .env
+    environment:
+      API_BASE_URL: http://api:8001
+    depends_on:
+      - api
+    command: ["streamlit", "run", "ui/streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+
+  portfolio:
+    build:
+      context: ./portfolio-web
+      dockerfile: Dockerfile
+    container_name: portfolio-web
+    environment:
+      VITE_API_BASE_URL: http://localhost:8001
+    depends_on:
+      - api
+    ports:
+      - "3000:3000"
+
+volumes:
+  chroma_data:

@@ -1,0 +1,161 @@
+{
+  "chunk_count": 14,
+  "version_id": "ab0e7543-4948-4474-91b6-3d61a8b3b8a6",
+  "embedding_index": {
+    "provider": "gemini",
+    "collection": "documents_gemini",
+    "indexed": true,
+    "chunk_count": 14
+  },
+  "chunks": [
+    {
+      "index": 0,
+      "section_title": "Raj Sahoo",
+      "section_path": [
+        "Raj Sahoo"
+      ],
+      "semantic_type": "paragraph",
+      "chunk_index_within_section": 0,
+      "char_count": 99
+    },
+    {
+      "index": 1,
+      "section_title": "Parul University, Vadodara, Gujarat",
+      "section_path": [
+        "Parul University, Vadodara, Gujarat"
+      ],
+      "semantic_type": "paragraph",
+      "chunk_index_within_section": 0,
+      "char_count": 103
+    },
+    {
+      "index": 2,
+      "section_title": "MyOnsite Healthcare, Vadodara",
+      "section_path": [
+        "Experience",
+        "MyOnsite Healthcare, Vadodara"
+      ],
+      "semantic_type": "paragraph",
+      "chunk_index_within_section": 0,
+      "char_count": 64
+    },
+    {
+      "index": 3,
+      "section_title": "MyOnsite Healthcare, Vadodara",
+      "section_path": [
+        "Experience",
+        "MyOnsite Healthcare, Vadodara"
+      ],
+      "semantic_type": "bullet_group",
+      "chunk_index_within_section": 1,
+      "char_count": 890
+    },
+    {
+      "index": 4,
+      "section_title": "MyOnsite Healthcare, Vadodara",
+      "section_path": [
+        "Experience",
+        "MyOnsite Healthcare, Vadodara"
+      ],
+      "semantic_type": "bullet_group",
+      "chunk_index_within_section": 2,
+      "char_count": 757
+    },
+    {
+      "index": 5,
+      "section_title": "MyOnsite Healthcare, Vadodara",
+      "section_path": [
+        "Experience",
+        "MyOnsite Healthcare, Vadodara"
+      ],
+      "semantic_type": "bullet_group",
+      "chunk_index_within_section": 3,
+      "char_count": 946
+    },
+    {
+      "index": 6,
+      "section_title": "MyOnsite Healthcare, Vadodara",
+      "section_path": [
+        "Experience",
+        "MyOnsite Healthcare, Vadodara"
+      ],
+      "semantic_type": "bullet_group",
+      "chunk_index_within_section": 4,
+      "char_count": 768
+    },
+    {
+      "index": 7,
+      "section_title": "MyOnsite Healthcare, Vadodara",
+      "section_path": [
+        "Experience",
+        "MyOnsite Healthcare, Vadodara"
+      ],
+      "semantic_type": "bullet_group",
+      "chunk_index_within_section": 5,
+      "char_count": 821
+    },
+    {
+      "index": 8,
+      "section_title": "MyOnsite Healthcare, Vadodara",
+      "section_path": [
+        "Experience",
+        "MyOnsite Healthcare, Vadodara"
+      ],
+      "semantic_type": "bullet_group",
+      "chunk_index_within_section": 6,
+      "char_count": 623
+    },
+    {
+      "index": 9,
+      "section_title": "Projects",
+      "section_path": [
+        "Projects"
+      ],
+      "semantic_type": "bullet_group",
+      "chunk_index_within_section": 0,
+      "char_count": 554
+    },
+    {
+      "index": 10,
+      "section_title": "Employee Promotion Prediction Engine",
+      "section_path": [
+        "Projects",
+        "Employee Promotion Prediction Engine"
+      ],
+      "semantic_type": "paragraph",
+      "chunk_index_within_section": 0,
+      "char_count": 318
+    },
+    {
+      "index": 11,
+      "section_title": "Plant Disease Classification System",
+      "section_path": [
+        "Projects",
+        "Plant Disease Classification System"
+      ],
+      "semantic_type": "paragraph",
+      "chunk_index_within_section": 0,
+      "char_count": 906
+    },
+    {
+      "index": 12,
+      "section_title": "Technical Skills",
+      "section_path": [
+        "Technical Skills"
+      ],
+      "semantic_type": "bullet_group",
+      "chunk_index_within_section": 0,
+      "char_count": 604
+    },
+    {
+      "index": 13,
+      "section_title": "Accomplishments &#x26; Leadership",
+      "section_path": [
+        "Accomplishments &#x26; Leadership"
+      ],
+      "semantic_type": "bullet_group",
+      "chunk_index_within_section": 0,
+      "char_count": 869
+    }
+  ]
+}

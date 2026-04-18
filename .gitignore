@@ -1,0 +1,3 @@
+.venv
+.env
+/portfolio-web/node_modules
