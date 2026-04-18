@@ -267,7 +267,31 @@ class PortfolioService:
             "I build production AI systems, real-time automation, retrieval pipelines, and applied ML products. "
             "My recent work spans conversational AI, intelligent dashboards, sentiment analysis, enterprise integrations, and agentic workflows."
         )
-        projects = [self._project_payload(path) for path in self.project_files if path.exists()]
+        manual_projects = metadata_store.list_portfolio_projects()
+        projects = manual_projects
+
+        # Backwards-compatible seed content for fresh installs (or before any admin-added projects exist).
+        if not projects:
+            projects = [self._project_payload(path) for path in self.project_files if path.exists()]
+
+        # If a project is present in the Resume "Projects" section but doesn't have a project card yet,
+        # surface it as a placeholder so it's visible on the portfolio and can be upgraded via an upload.
+        seen_titles = {str(item.get("title") or "").strip().lower() for item in projects}
+        for title in resume_projects:
+            key = title.strip().lower()
+            if not key or key in seen_titles:
+                continue
+            slug = re.sub(r"[^a-z0-9]+", "-", key).strip("-") or key.replace(" ", "-")
+            projects.append(
+                {
+                    "id": slug,
+                    "title": title.strip(),
+                    "summary": "Upload this project's document in Admin to generate a full summary and details.",
+                    "techStack": [],
+                    "sourcePath": "Resume",
+                }
+            )
+            seen_titles.add(key)
         return {
             "profile": {
                 **header,

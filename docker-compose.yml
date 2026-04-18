@@ -1,4 +1,12 @@
-﻿services:
+services:
+  mongo:
+    image: mongo:7
+    container_name: portfolio-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
   chroma:
     image: chromadb/chroma:1.0.7
     container_name: portfolio-chroma
@@ -11,6 +19,7 @@
       - chroma_data:/data
 
   api:
+    image: portfolio-api:latest
     build:
       context: .
       dockerfile: Dockerfile
@@ -18,16 +27,17 @@
     env_file:
       - .env
     depends_on:
+      - mongo
       - chroma
     ports:
       - "8001:8001"
     volumes:
       - ./data:/app/data
+      - ./app:/app/app
+      - ./ui:/app/ui
 
   ui:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: portfolio-api:latest
     container_name: portfolio-ui
     env_file:
       - .env
@@ -48,10 +58,27 @@
     container_name: portfolio-web
     environment:
       VITE_API_BASE_URL: http://localhost:8001
+      VITE_APP_MODE: portfolio
     depends_on:
       - api
     ports:
       - "3000:3000"
 
+  admin:
+    build:
+      context: ./portfolio-web
+      dockerfile: Dockerfile
+    container_name: portfolio-admin
+    environment:
+      VITE_API_BASE_URL: http://localhost:8001
+      VITE_APP_MODE: admin
+      VITE_PORTFOLIO_ORIGIN: http://localhost:3000
+    depends_on:
+      - api
+    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3001"]
+    ports:
+      - "3001:3001"
+
 volumes:
   chroma_data:
+  mongo_data:

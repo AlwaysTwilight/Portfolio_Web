@@ -1,0 +1,45 @@
+.git
+.gitignore
+.github
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.tox/
+.nox/
+.cache/
+.venv/
+venv/
+env/
+
+# Node / Vite
+**/node_modules/
+**/dist/
+**/.vite/
+**/.turbo/
+**/.parcel-cache/
+**/.next/
+
+# Local app data (mounted as volumes / regenerated)
+data/raw/
+data/processed/
+data/chroma/
+data/metadata/*.db
+
+# Logs
+logs/
+*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

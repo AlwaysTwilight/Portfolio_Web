@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import json
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -9,12 +10,18 @@ from typing import Any, Iterator
 
 from app.config import settings
 
+try:
+    from pymongo import MongoClient, ReturnDocument
+except Exception:  # pragma: no cover
+    MongoClient = None  # type: ignore[assignment]
+    ReturnDocument = None  # type: ignore[assignment]
+
 
 def utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-class MetadataStore:
+class SqliteMetadataStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
 
@@ -49,6 +56,30 @@ class MetadataStore:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS portfolio_projects (
+                    project_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    tech_stack_json TEXT NOT NULL,
+                    source_path TEXT NOT NULL,
+                    sort_order INTEGER NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL,
+                    source_logical_document_key TEXT,
+                    source_version_id TEXT
+                )
+                """
+            )
+            # Best-effort schema migration for older DBs.
+            try:
+                cols = {row["name"] for row in conn.execute("PRAGMA table_info(portfolio_projects)").fetchall()}
+                if "source_logical_document_key" not in cols:
+                    conn.execute("ALTER TABLE portfolio_projects ADD COLUMN source_logical_document_key TEXT")
+                if "source_version_id" not in cols:
+                    conn.execute("ALTER TABLE portfolio_projects ADD COLUMN source_version_id TEXT")
+            except Exception:
+                pass
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS app_settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
@@ -67,6 +98,118 @@ class MetadataStore:
                 VALUES ('open_to_work', 'true')
                 """
             )
+
+    def list_portfolio_projects(self) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT project_id, title, summary, tech_stack_json, source_path, sort_order, updated_at,
+                       source_logical_document_key, source_version_id
+                FROM portfolio_projects
+                ORDER BY sort_order ASC, updated_at DESC
+                """
+            ).fetchall()
+        projects: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            try:
+                tech_stack = json.loads(item.get("tech_stack_json") or "[]")
+            except Exception:
+                tech_stack = []
+            projects.append(
+                {
+                    "id": item["project_id"],
+                    "title": item["title"],
+                    "summary": item["summary"],
+                    "techStack": tech_stack if isinstance(tech_stack, list) else [],
+                    "sourcePath": item["source_path"],
+                    "sortOrder": int(item.get("sort_order") or 0),
+                    "updatedAt": item["updated_at"],
+                    "sourceLogicalDocumentKey": item.get("source_logical_document_key") or None,
+                    "sourceVersionId": item.get("source_version_id") or None,
+                }
+            )
+        return projects
+
+    def upsert_portfolio_project(
+        self,
+        *,
+        project_id: str | None,
+        title: str,
+        summary: str,
+        tech_stack: list[str],
+        source_path: str = "Admin",
+        sort_order: int = 0,
+        source_logical_document_key: str | None = None,
+        source_version_id: str | None = None,
+    ) -> str:
+        normalized_id = project_id or str(uuid.uuid4())
+        payload = json.dumps(tech_stack or [])
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO portfolio_projects (
+                    project_id, title, summary, tech_stack_json, source_path, sort_order, updated_at,
+                    source_logical_document_key, source_version_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET
+                    title = excluded.title,
+                    summary = excluded.summary,
+                    tech_stack_json = excluded.tech_stack_json,
+                    source_path = excluded.source_path,
+                    sort_order = excluded.sort_order,
+                    updated_at = excluded.updated_at,
+                    source_logical_document_key = excluded.source_logical_document_key,
+                    source_version_id = excluded.source_version_id
+                """,
+                (
+                    normalized_id,
+                    title,
+                    summary,
+                    payload,
+                    source_path,
+                    int(sort_order),
+                    utc_now_iso(),
+                    source_logical_document_key,
+                    source_version_id,
+                ),
+            )
+        return normalized_id
+
+    def delete_portfolio_project(self, project_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM portfolio_projects WHERE project_id = ?", (project_id,))
+
+    def get_portfolio_project(self, project_id: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT project_id, title, summary, tech_stack_json, source_path, sort_order, updated_at,
+                       source_logical_document_key, source_version_id
+                FROM portfolio_projects
+                WHERE project_id = ?
+                """,
+                (project_id,),
+            ).fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        try:
+            tech_stack = json.loads(item.get("tech_stack_json") or "[]")
+        except Exception:
+            tech_stack = []
+        return {
+            "id": item["project_id"],
+            "title": item["title"],
+            "summary": item["summary"],
+            "techStack": tech_stack if isinstance(tech_stack, list) else [],
+            "sourcePath": item["source_path"],
+            "sortOrder": int(item.get("sort_order") or 0),
+            "updatedAt": item["updated_at"],
+            "whatItDoes": [],
+            "sourceLogicalDocumentKey": item.get("source_logical_document_key") or None,
+            "sourceVersionId": item.get("source_version_id") or None,
+        }
 
     def create_version(
         self,
@@ -213,5 +356,296 @@ class MetadataStore:
     def set_open_to_work(self, value: bool) -> None:
         self.set_setting("open_to_work", "true" if value else "false")
 
+class MongoMetadataStore:
+    def __init__(self, mongo_uri: str, db_name: str) -> None:
+        if not MongoClient:
+            raise RuntimeError("pymongo is not installed, but MONGODB_URI is set.")
+        self._client = MongoClient(mongo_uri, serverSelectionTimeoutMS=3000)
+        self._db = self._client[db_name]
+        self._versions = self._db["document_versions"]
+        self._settings = self._db["app_settings"]
+        self._projects = self._db["portfolio_projects"]
 
-metadata_store = MetadataStore(settings.sqlite_path)
+    def initialize(self) -> None:
+        self._versions.create_index([("logical_document_key", 1), ("upload_timestamp", -1)])
+        self._versions.create_index([("logical_document_key", 1), ("is_active", 1)])
+        self._projects.create_index([("sort_order", 1), ("updated_at", -1)])
+        # Default settings
+        self._settings.update_one({"_id": "open_to_work"}, {"$setOnInsert": {"value": "true"}}, upsert=True)
+        self._migrate_from_sqlite_if_present()
+
+    def _migrate_from_sqlite_if_present(self) -> None:
+        """
+        If the user already indexed documents while using SQLite, copy that metadata into Mongo
+        so the admin/portfolio UI can still list documents and active versions.
+        """
+        try:
+            if self._versions.estimated_document_count() > 0:
+                return
+        except Exception:
+            # If Mongo isn't ready, let the caller fail normally.
+            return
+
+        sqlite_path = settings.sqlite_path
+        if not sqlite_path.exists():
+            return
+
+        try:
+            connection = sqlite3.connect(sqlite_path)
+            connection.row_factory = sqlite3.Row
+        except Exception:
+            return
+
+        try:
+            # Migrate app settings.
+            try:
+                setting_rows = connection.execute("SELECT key, value FROM app_settings").fetchall()
+                for row in setting_rows:
+                    key = str(row["key"])
+                    value = str(row["value"])
+                    self._settings.update_one({"_id": key}, {"$set": {"value": value}}, upsert=True)
+            except Exception:
+                pass
+
+            # Migrate document versions.
+            version_rows = connection.execute("SELECT * FROM document_versions").fetchall()
+            if not version_rows:
+                return
+            documents = []
+            for row in version_rows:
+                item = dict(row)
+                version_id = str(item.get("version_id") or "")
+                if not version_id:
+                    continue
+                item["_id"] = version_id
+                item["is_active"] = bool(int(item.get("is_active") or 0))
+                item["chunk_count"] = int(item.get("chunk_count") or 0)
+                documents.append(item)
+            if documents:
+                self._versions.insert_many(documents, ordered=False)
+
+            # Migrate manually added projects (table may not exist in older DBs).
+            try:
+                project_rows = connection.execute("SELECT * FROM portfolio_projects").fetchall()
+                project_docs = []
+                for row in project_rows:
+                    item = dict(row)
+                    project_id = str(item.get("project_id") or "")
+                    if not project_id:
+                        continue
+                    tech_stack_json = str(item.get("tech_stack_json") or "[]")
+                    try:
+                        tech_stack = json.loads(tech_stack_json)
+                    except Exception:
+                        tech_stack = []
+                    project_docs.append(
+                        {
+                            "_id": project_id,
+                            "title": str(item.get("title") or ""),
+                            "summary": str(item.get("summary") or ""),
+                            "tech_stack": tech_stack if isinstance(tech_stack, list) else [],
+                            "source_path": str(item.get("source_path") or "Admin"),
+                            "sort_order": int(item.get("sort_order") or 0),
+                            "updated_at": str(item.get("updated_at") or utc_now_iso()),
+                        }
+                    )
+                if project_docs:
+                    self._projects.insert_many(project_docs, ordered=False)
+            except Exception:
+                pass
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    def create_version(
+        self,
+        logical_document_key: str,
+        file_name: str,
+        file_type: str,
+        storage_path: str,
+        source_label: str | None,
+    ) -> str:
+        version_id = str(uuid.uuid4())
+        document = {
+            "_id": version_id,
+            "logical_document_key": logical_document_key,
+            "version_id": version_id,
+            "file_name": file_name,
+            "file_type": file_type,
+            "storage_path": storage_path,
+            "upload_timestamp": utc_now_iso(),
+            "status": "uploaded",
+            "is_active": False,
+            "source_label": source_label,
+            "chunk_count": 0,
+            "parse_artifact_path": None,
+        }
+        self._versions.insert_one(document)
+        return version_id
+
+    def get_version(self, version_id: str) -> dict[str, Any] | None:
+        row = self._versions.find_one({"_id": version_id})
+        if not row:
+            return None
+        row.pop("_id", None)
+        return dict(row)
+
+    def list_documents(self) -> list[dict[str, Any]]:
+        rows = list(self._versions.find({}).sort([("logical_document_key", 1), ("upload_timestamp", -1)]))
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            item = dict(row)
+            item.pop("_id", None)
+            key = str(item["logical_document_key"])
+            summary = grouped.setdefault(
+                key,
+                {
+                    "logical_document_key": key,
+                    "active_version_id": None,
+                    "updated_at": item["upload_timestamp"],
+                    "versions": [],
+                },
+            )
+            if item.get("is_active"):
+                summary["active_version_id"] = item["version_id"]
+            summary["versions"].append(item)
+        return list(grouped.values())
+
+    def list_versions(self, logical_document_key: str) -> list[dict[str, Any]]:
+        rows = list(
+            self._versions.find({"logical_document_key": logical_document_key}).sort([("upload_timestamp", -1)])
+        )
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            row = dict(row)
+            row.pop("_id", None)
+            results.append(row)
+        return results
+
+    def update_status(
+        self,
+        version_id: str,
+        status: str,
+        chunk_count: int | None = None,
+        parse_artifact_path: str | None = None,
+    ) -> None:
+        current = self._versions.find_one({"_id": version_id})
+        if not current:
+            raise ValueError(f"Unknown version_id: {version_id}")
+        next_chunk_count = int(current.get("chunk_count", 0)) if chunk_count is None else int(chunk_count)
+        next_parse_path = current.get("parse_artifact_path") if parse_artifact_path is None else parse_artifact_path
+        self._versions.update_one(
+            {"_id": version_id},
+            {"$set": {"status": status, "chunk_count": next_chunk_count, "parse_artifact_path": next_parse_path}},
+        )
+
+    def update_storage_path(self, version_id: str, storage_path: str) -> None:
+        self._versions.update_one({"_id": version_id}, {"$set": {"storage_path": storage_path}})
+
+    def activate_version(self, logical_document_key: str, version_id: str) -> None:
+        self._versions.update_many({"logical_document_key": logical_document_key}, {"$set": {"is_active": False}})
+        self._versions.update_one(
+            {"_id": version_id},
+            {"$set": {"is_active": True, "status": "indexed"}},
+        )
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        row = self._settings.find_one({"_id": key})
+        if not row:
+            return default
+        return str(row.get("value", default))
+
+    def set_setting(self, key: str, value: str) -> None:
+        self._settings.update_one({"_id": key}, {"$set": {"value": value}}, upsert=True)
+
+    def get_open_to_work(self) -> bool:
+        return (self.get_setting("open_to_work", "true") or "true").lower() == "true"
+
+    def set_open_to_work(self, value: bool) -> None:
+        self.set_setting("open_to_work", "true" if value else "false")
+
+    def list_portfolio_projects(self) -> list[dict[str, Any]]:
+        rows = list(self._projects.find({}).sort([("sort_order", 1), ("updated_at", -1)]))
+        projects: list[dict[str, Any]] = []
+        for row in rows:
+            project_id = str(row.get("_id") or row.get("project_id") or "")
+            if not project_id:
+                continue
+            projects.append(
+                {
+                    "id": project_id,
+                    "title": str(row.get("title") or ""),
+                    "summary": str(row.get("summary") or ""),
+                    "techStack": list(row.get("tech_stack") or []),
+                    "sourcePath": str(row.get("source_path") or "Admin"),
+                    "sortOrder": int(row.get("sort_order") or 0),
+                    "updatedAt": str(row.get("updated_at") or ""),
+                    "whatItDoes": list(row.get("what_it_does") or []),
+                    "sourceLogicalDocumentKey": row.get("source_logical_document_key") or None,
+                    "sourceVersionId": row.get("source_version_id") or None,
+                }
+            )
+        return projects
+
+    def upsert_portfolio_project(
+        self,
+        *,
+        project_id: str | None,
+        title: str,
+        summary: str,
+        tech_stack: list[str],
+        source_path: str = "Admin",
+        sort_order: int = 0,
+        what_it_does: list[str] | None = None,
+        source_logical_document_key: str | None = None,
+        source_version_id: str | None = None,
+    ) -> str:
+        normalized_id = project_id or str(uuid.uuid4())
+        now = utc_now_iso()
+        self._projects.update_one(
+            {"_id": normalized_id},
+            {
+                "$set": {
+                    "title": title,
+                    "summary": summary,
+                    "tech_stack": tech_stack or [],
+                    "source_path": source_path,
+                    "sort_order": int(sort_order or 0),
+                    "updated_at": now,
+                    "what_it_does": what_it_does or [],
+                    "source_logical_document_key": source_logical_document_key,
+                    "source_version_id": source_version_id,
+                }
+            },
+            upsert=True,
+        )
+        return normalized_id
+
+    def delete_portfolio_project(self, project_id: str) -> None:
+        self._projects.delete_one({"_id": project_id})
+
+    def get_portfolio_project(self, project_id: str) -> dict[str, Any] | None:
+        row = self._projects.find_one({"_id": project_id})
+        if not row:
+            return None
+        return {
+            "id": str(row.get("_id") or ""),
+            "title": str(row.get("title") or ""),
+            "summary": str(row.get("summary") or ""),
+            "techStack": list(row.get("tech_stack") or []),
+            "sourcePath": str(row.get("source_path") or "Admin"),
+            "sortOrder": int(row.get("sort_order") or 0),
+            "updatedAt": str(row.get("updated_at") or ""),
+            "whatItDoes": list(row.get("what_it_does") or []),
+            "sourceLogicalDocumentKey": row.get("source_logical_document_key") or None,
+            "sourceVersionId": row.get("source_version_id") or None,
+        }
+
+
+metadata_store = (
+    MongoMetadataStore(settings.mongodb_uri, settings.mongodb_db)
+    if settings.mongodb_uri
+    else SqliteMetadataStore(settings.sqlite_path)
+)

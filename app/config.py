@@ -41,6 +41,9 @@ class Settings:
     top_k: int = int(os.getenv('TOP_K', '4'))
     chroma_collection_name: str = os.getenv('CHROMA_COLLECTION_NAME', 'documents_gemini')
     chroma_space: str = os.getenv('CHROMA_SPACE', 'cosine')
+    admin_token: str = os.getenv('ADMIN_TOKEN', '')
+    mongodb_uri: str = os.getenv('MONGODB_URI', '')
+    mongodb_db: str = os.getenv('MONGODB_DB', 'portfolio')
 
 
 settings = Settings()

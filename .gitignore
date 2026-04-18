@@ -1,3 +1,46 @@
-.venv
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.pyo
+.Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.tox/
+.nox/
+.cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files
 .env
-/portfolio-web/node_modules
+
+# Node / Vite
+/portfolio-web/node_modules/
+/portfolio-web/dist/
+/portfolio-web/.vite/
+*.tsbuildinfo
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Local app data
+/data/raw/
+/data/processed/
+/data/chroma/
+/data/metadata/*.db
+
+# Logs
+/logs/
+*.log
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

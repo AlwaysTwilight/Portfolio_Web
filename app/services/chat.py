@@ -10,15 +10,15 @@ from app.services.llm import llm_service
 from app.services.vector_store import vector_store
 
 
-PROMPT_TEMPLATE = """You are a grounded assistant for a private document collection.
-Answer the user's question using only the supplied context.
-Use semantic understanding across the retrieved chunks and combine information when it clearly belongs to the same document subject, organization, or section.
-When a question asks what someone worked on at an organization, treat named bullet items, initiatives, systems, products, or workstreams listed under that organization's section as valid answers.
-Do not confuse a standalone Projects section with work items listed under an Experience or organization section unless the context explicitly links them.
-Prefer concise, direct answers that preserve dates, role names, employers, metrics, and technologies.
-If the context says a role is ongoing with words like \"Present\" or \"Currently\", you may treat the end date as today's date: {today}.
-If the context is genuinely insufficient, say you do not know based on the uploaded files.
-Do not say a person is missing if their name appears in one retrieved chunk and their experience appears in another retrieved chunk from the same document.
+PROMPT_TEMPLATE = """You are Raj's portfolio assistant for a private document collection.
+
+Answer using only the supplied Context. Do not use outside knowledge.
+
+Rules:
+- Treat named initiatives/systems/products/workstreams listed under an organization in Experience as valid answers for \"what did Raj work on\" at that org.
+- Do not mix standalone Projects with Experience work items unless the context explicitly links them.
+- Prefer concise, direct answers that preserve dates, role names, employers, metrics, and technologies.
+- If the context is insufficient, say you do not know based on the uploaded files.
 
 Derived hints:
 {derived_hints}
@@ -44,6 +44,16 @@ STOP_WORDS = {
 }
 
 GREETING_RE = re.compile(r'^\s*(hi|hello|hey|yo|hola|good morning|good afternoon|good evening)\b[!. ]*$', re.IGNORECASE)
+SELF_QUESTION_RE = re.compile(
+    r"^\s*(who\s+are\s+you|what\s+are\s+you|what\s+can\s+you\s+do|help|what\s+is\s+this|what\s+do\s+you\s+do)\b",
+    re.IGNORECASE,
+)
+THANKS_RE = re.compile(r'^\s*(thanks|thank you|thx)\b[!. ]*$', re.IGNORECASE)
+BYE_RE = re.compile(r'^\s*(bye|goodbye|see you|see ya)\b[!. ]*$', re.IGNORECASE)
+OFF_TOPIC_RE = re.compile(
+    r"\b(weather|forecast|temperature|rain|humidity|wind|sunrise|sunset|news|headlines|sports|score|stock|price of|bitcoin|crypto|movie times)\b",
+    re.IGNORECASE,
+)
 DATE_RANGE_PATTERN = re.compile(
     r"\b(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t|tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+(\d{4})\s*-\s*(Present|Currently|Current|Now|Jan(?:uary)?\s+\d{4}|Feb(?:ruary)?\s+\d{4}|Mar(?:ch)?\s+\d{4}|Apr(?:il)?\s+\d{4}|May\s+\d{4}|Jun(?:e)?\s+\d{4}|Jul(?:y)?\s+\d{4}|Aug(?:ust)?\s+\d{4}|Sep(?:t|tember)?\s+\d{4}|Oct(?:ober)?\s+\d{4}|Nov(?:ember)?\s+\d{4}|Dec(?:ember)?\s+\d{4})",
     re.IGNORECASE,
@@ -56,6 +66,21 @@ ORG_STOP_WORDS = {'that', 'this', 'company', 'organization', 'him', 'her', 'them
 class ChatService:
     def _is_greeting(self, message: str) -> bool:
         return bool(GREETING_RE.match(message))
+
+    def _is_self_question(self, message: str) -> bool:
+        return bool(SELF_QUESTION_RE.match(message))
+
+    def _is_thanks(self, message: str) -> bool:
+        return bool(THANKS_RE.match(message))
+
+    def _is_bye(self, message: str) -> bool:
+        return bool(BYE_RE.match(message))
+
+    def _is_off_topic(self, message: str) -> bool:
+        lowered = message.lower()
+        if "raj" in lowered or "portfolio" in lowered:
+            return False
+        return bool(OFF_TOPIC_RE.search(message))
 
     def _split_entities(self, value: object) -> list[str]:
         if not value:
@@ -372,7 +397,13 @@ class ChatService:
         lines.append('---\n')
         return '\n'.join(lines) + '\n'
 
-    def answer(self, message: str, include_debug: bool = False, history: list[ConversationTurn] | None = None) -> ChatResponse:
+    def answer(
+        self,
+        message: str,
+        include_debug: bool = False,
+        history: list[ConversationTurn] | None = None,
+        active_project_title: str | None = None,
+    ) -> ChatResponse:
         history = history or []
         normalized_message = message.strip()
         if self._is_greeting(normalized_message):
@@ -381,14 +412,48 @@ class ChatService:
                 sources=[],
                 debug=[{'intent': 'greeting'}] if include_debug else None,
             )
+        if self._is_self_question(normalized_message):
+            return ChatResponse(
+                answer=(
+                    "I'm Raj's portfolio assistant. I can answer questions about Raj's projects, experience, and AI systems work "
+                    "based on the documents you uploaded."
+                ),
+                sources=[],
+                debug=[{'intent': 'assistant_identity'}] if include_debug else None,
+            )
+        if self._is_thanks(normalized_message):
+            return ChatResponse(
+                answer="You're welcome. Ask me anything about Raj's work or the uploaded documents.",
+                sources=[],
+                debug=[{'intent': 'thanks'}] if include_debug else None,
+            )
+        if self._is_bye(normalized_message):
+            return ChatResponse(
+                answer="Bye. If you come back, ask me about Raj's projects or experience and I'll answer from the uploaded files.",
+                sources=[],
+                debug=[{'intent': 'bye'}] if include_debug else None,
+            )
+        if self._is_off_topic(normalized_message):
+            return ChatResponse(
+                answer="I can only help with questions about Raj's portfolio and the uploaded documents (not general topics like weather).",
+                sources=[],
+                debug=[{'intent': 'off_topic'}] if include_debug else None,
+            )
 
-        # For referential/follow-up queries, expand the query with prior context before retrieval
+        # For referential/follow-up queries, expand the query with prior context before retrieval.
         retrieval_query = self._expand_query_with_history(normalized_message, history)
+        if active_project_title and active_project_title.strip():
+            # Keep this short to avoid token bloat, but still bias retrieval toward the viewed project.
+            retrieval_query = f"{retrieval_query} (Project focus: {active_project_title.strip()})"
 
         selected_hits, ranked_hits, embedding_backend, focus_title = self._retrieve_context(retrieval_query)
         if not selected_hits:
             debug = [{'embedding_backend': embedding_backend}] if include_debug else []
-            return ChatResponse(answer='I do not know based on the uploaded files.', sources=[], debug=debug if include_debug else None)
+            return ChatResponse(
+                answer='I do not know based on the uploaded files.',
+                sources=[],
+                debug=debug if include_debug else None,
+            )
 
         context_parts: list[str] = []
         sources: list[SourceItem] = []

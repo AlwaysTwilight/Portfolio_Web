@@ -10,6 +10,7 @@ class UploadResponse(BaseModel):
     version_id: str
     status: str
     chunk_count: int = 0
+    project_id: Optional[str] = None
 
 
 class IngestRequest(BaseModel):
@@ -26,6 +27,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
     include_debug: bool = False
     history: List[ConversationTurn] = Field(default_factory=list)
+    active_project_title: Optional[str] = None
 
 
 class SourceItem(BaseModel):
