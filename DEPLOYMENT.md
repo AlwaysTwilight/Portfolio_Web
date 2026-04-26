@@ -1,187 +1,194 @@
-# Deployment (Railway + Vercel) for full parity with local
+# Deployment (Simple RAG: Render + Vercel)
 
-This repo has:
+This version does **not** use Chroma, embeddings, FAISS, Pinecone, or any vector database.
 
-- `portfolio-web/`: Vite + React frontend (portfolio mode or admin mode)
-- `app/`: FastAPI backend
-- Chroma: runs as `chromadb/chroma` (needs a persistent volume)
-- Metadata DB: defaults to SQLite at `data/metadata/app.db` (can be Mongo via `MONGODB_URI`)
+RAG now works like this:
 
-The clean production split is:
+1. Upload a document from the admin UI.
+2. Backend parses it with LlamaParse.
+3. Backend chunks the parsed text.
+4. Chunks are stored as JSON under `data/processed/.../chunks.json`.
+5. Chat retrieves top chunks using simple BM25-style keyword scoring.
+6. The selected chunks are sent to the LLM as context.
 
-- **Vercel**: host the frontend(s)
-- **Railway (or similar)**: host the FastAPI backend
-- **Railway (or similar)**: host Chroma with a persistent volume
-- **MongoDB Atlas or Railway Mongo** (recommended): store metadata/projects (optional but best for production)
-- **Railway volume**: store uploads + parse artifacts (`/app/data`) if you stay on SQLite or want durable file storage
+This is much easier to deploy because you only need:
 
----
-
-## 0) What “done” looks like (end-to-end)
-
-When everything is correctly deployed:
-
-- Your Railway API URL returns `GET /health` → `{"status":"ok"}`
-- Your Vercel portfolio site loads and calls `GET /portfolio` successfully
-- Your Vercel admin site can:
-  - set settings (`PUT /admin/settings` with `X-Admin-Token`)
-  - upload/ingest docs (`POST /upload`)
-  - list indexed docs (`GET /admin/chroma/documents`)
-  - chat (`POST /chat`)
+- Vercel for the React frontend.
+- Render for the FastAPI backend.
+- Render persistent disk for uploads, SQLite, parsed files, and chunk JSON.
+- Optional MongoDB Atlas if you want metadata outside SQLite.
 
 ---
 
-## 1) Railway: API service (you already deployed this)
+## 1. Backend Deploy: Render
 
-Do this checklist now:
+Create a new Render **Web Service**.
 
-1. Add a **Railway volume** mounted at `/app/data` (uploads + SQLite + processed files persist).
-2. Add the env vars (next section).
-3. Redeploy the API service.
-4. Verify:
-   - `GET /health`
-   - `GET /docs`
-   - `GET /portfolio`
+Settings:
 
-### API build/start behavior (important)
+- Runtime: Docker
+- Root directory: repository root
+- Dockerfile path: `Dockerfile`
+- Health check path: `/health`
 
-The repo root `Dockerfile` starts uvicorn with:
+The backend uses Render's `PORT` automatically:
 
-- `--port ${PORT:-8000}` (Railway sets `PORT` automatically)
-- `--proxy-headers` (correct scheme/host behind Railway proxy)
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers
+```
 
-### API environment variables (Railway)
+---
 
-Required for real chat/indexing:
+## 2. Render Persistent Disk
 
-- `GEMINI_API_KEY`
-- `LLAMA_CLOUD_API_KEY`
+Add a Render persistent disk to the backend service.
+
+Mount path:
+
+```text
+/app/data
+```
+
+This stores:
+
+- uploaded files
+- SQLite DB
+- parsed markdown
+- chunk JSON retrieval index
+
+Without this disk, uploads and indexed chunks can disappear after redeploys.
+
+---
+
+## 3. Render Environment Variables
+
+Required:
+
+```env
+GEMINI_API_KEY=your_key
+LLAMA_CLOUD_API_KEY=your_key
+ADMIN_TOKEN=some_secure_token
+```
 
 Recommended:
 
-- `ADMIN_TOKEN` (protects admin endpoints; the admin UI sends it as `X-Admin-Token`)
-- `CORS_ALLOW_ORIGINS` (comma-separated exact origins; set after Vercel URLs exist)
+```env
+SQLITE_PATH=data/metadata/app.db
+RAW_UPLOAD_DIR=data/raw
+PROCESSED_DIR=data/processed
+CHUNK_SIZE=1000
+CHUNK_OVERLAP=150
+TOP_K=4
+```
 
-Chroma connectivity:
+Set this after Vercel deploys:
 
-- `CHROMA_HOST` (Railway private hostname of your Chroma service, e.g. `chroma.railway.internal`)
-- `CHROMA_PORT` (usually `8000`)
-- `CHROMA_COLLECTION_NAME` (optional)
-- `CHROMA_SPACE` (optional; default `cosine`)
+```env
+CORS_ALLOW_ORIGINS=https://your-portfolio.vercel.app,https://your-admin.vercel.app
+```
 
-Metadata DB (optional but recommended):
+Optional MongoDB Atlas:
 
-- `MONGODB_URI` (MongoDB Atlas/Railway connection string)
-- `MONGODB_DB` (default `portfolio`)
+```env
+MONGODB_URI=your_mongodb_connection_string
+MONGODB_DB=portfolio
+```
 
-Storage paths (defaults are fine if you mount `/app/data`):
-
-- `SQLITE_PATH` (default `data/metadata/app.db`)
-- `RAW_UPLOAD_DIR` (default `data/raw`)
-- `PROCESSED_DIR` (default `data/processed`)
-
-After deploy, confirm:
-
-- `GET /health`
-- `GET /portfolio`
+If you skip MongoDB, SQLite works fine as long as `/app/data` is mounted.
 
 ---
 
-## 2) Railway: deploy Chroma (persistent) so RAG works
+## 4. Backend Checks
 
-Create a second Railway service for Chroma:
+After Render deploys, test:
 
-- Image: `chromadb/chroma:1.0.7`
-- Port: `8000`
-- Volume: mount a volume at `/data`
-- Env:
-  - `IS_PERSISTENT=TRUE`
-  - `PERSIST_DIRECTORY=/data`
+```text
+https://your-render-api.onrender.com/
+https://your-render-api.onrender.com/health
+https://your-render-api.onrender.com/docs
+https://your-render-api.onrender.com/portfolio
+```
 
-Then set on the API service:
+Expected:
 
-- `CHROMA_HOST=<your-chroma-service-private-hostname>`
-- `CHROMA_PORT=8000`
-
-Notes:
-
-- In Railway, the private hostname is shown under the service networking/private networking area.
-- Once you set `CHROMA_HOST` and `CHROMA_PORT` on the API service, redeploy the API.
+- `/` returns `{"message":"API running"}`
+- `/health` returns `{"status":"ok"}`
 
 ---
 
-## 3) Deploy MongoDB (recommended)
+## 5. Frontend Deploy: Vercel
 
-Option A (recommended): MongoDB Atlas
+Create two Vercel projects from the same repo and same root directory.
 
-- Create an Atlas cluster
-- Allow Railway egress IPs (or set a permissive network rule if you accept the risk)
-- Put the connection string into `MONGODB_URI` on Railway
-
-Option B: Railway Mongo (if available in your account)
-
-- Provision Mongo and use its connection string as `MONGODB_URI`
-
-If you do not set `MONGODB_URI`, the API uses SQLite at `SQLITE_PATH`. You must mount `/app/data` to keep data across deploys.
-
----
-
-## 4) Deploy the frontend(s) to Vercel
-
-This frontend is a Vite SPA. Vercel needs:
+Vercel settings for both:
 
 - Root directory: `portfolio-web`
 - Build command: `npm run build`
 - Output directory: `dist`
 
-This repo supports two modes via `VITE_APP_MODE`:
+### Portfolio Vercel Project
 
-- `portfolio` (public site)
-- `admin` (admin UI)
+Environment variables:
 
-Best practice is to deploy **two Vercel projects** pointing at the same `portfolio-web` directory, each with different env vars.
+```env
+VITE_APP_MODE=portfolio
+VITE_API_BASE_URL=https://your-render-api.onrender.com
+```
 
-### Vercel project A: Portfolio
+### Admin Vercel Project
 
-Env vars:
+Environment variables:
 
-- `VITE_APP_MODE=portfolio`
-- `VITE_API_BASE_URL=https://<your-railway-api-domain>`
+```env
+VITE_APP_MODE=admin
+VITE_API_BASE_URL=https://your-render-api.onrender.com
+VITE_PORTFOLIO_ORIGIN=https://your-portfolio.vercel.app
+```
 
-### Vercel project B: Admin
+After both frontend projects are deployed, update Render:
 
-Env vars:
+```env
+CORS_ALLOW_ORIGINS=https://your-portfolio.vercel.app,https://your-admin.vercel.app
+```
 
-- `VITE_APP_MODE=admin`
-- `VITE_API_BASE_URL=https://<your-railway-api-domain>`
-- `VITE_PORTFOLIO_ORIGIN=https://<your-portfolio-vercel-domain>` (only used by the admin UI for links)
-
-### CORS (back on Railway)
-
-Once you have your Vercel URLs, set on the API service:
-
-`CORS_ALLOW_ORIGINS=https://<portfolio-vercel-domain>,https://<admin-vercel-domain>`
-
----
-
-## 5) Recommended “order of operations” (do this next)
-
-Fastest path from “API deployed” → “everything works”:
-
-1. Railway API: add `/app/data` volume → redeploy
-2. Railway Chroma: deploy + `/data` volume → get private hostname
-3. Railway API: set `CHROMA_HOST`/`CHROMA_PORT` → redeploy
-4. (Optional) MongoDB: set `MONGODB_URI`/`MONGODB_DB` → redeploy
-5. Vercel Portfolio: set `VITE_API_BASE_URL` → deploy
-6. Vercel Admin: set `VITE_API_BASE_URL` + `VITE_PORTFOLIO_ORIGIN` → deploy
-7. Railway API: set `CORS_ALLOW_ORIGINS` (both Vercel origins) → redeploy
-8. Test admin upload → ingest → chat
+Then redeploy the Render backend.
 
 ---
 
-## 6) Files / code changes already made for hosted deployments
+## 6. Final End-to-End Test
 
-- `Dockerfile`: uses `PORT` with default `8000` and enables proxy headers.
-- `app/config.py`: added `CORS_ALLOW_ORIGINS` parsing.
-- `app/main.py`: uses `CORS_ALLOW_ORIGINS` when set; otherwise defaults to localhost dev origins.
-- `portfolio-web/vercel.json`: SPA rewrite so React Router works on refresh/deep links.
+Use the admin Vercel URL:
+
+1. Enter the same `ADMIN_TOKEN` that you set on Render.
+2. Upload a PDF, DOCX, TXT, MD, or Markdown file.
+3. Keep `Index immediately after upload` checked.
+4. Confirm the Knowledge Base shows active RAG sources.
+5. Open the portfolio site.
+6. Ask the chatbot a question about the uploaded file.
+
+If the answer cites uploaded content, the simple RAG system is working.
+
+---
+
+## 7. What Was Removed
+
+Removed runtime dependency on:
+
+- ChromaDB
+- embedding generation
+- Railway private Chroma networking
+- separate vector DB service
+
+The old frontend-compatible endpoint still exists:
+
+```text
+GET /admin/chroma/documents
+```
+
+But it now returns the same data as:
+
+```text
+GET /admin/rag/documents
+```
+
+This keeps older UI code from breaking while the app uses simple local RAG internally.

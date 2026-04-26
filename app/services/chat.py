@@ -5,10 +5,9 @@ from datetime import datetime, timezone
 
 from app.config import settings
 from app.models import ChatResponse, ConversationTurn, SourceItem
-from app.services.embeddings import embedding_service
 from app.services.llm import llm_service
 from app.services.metadata import metadata_store
-from app.services.vector_store import vector_store
+from app.services.simple_retriever import simple_retriever
 
 
 PROMPT_TEMPLATE = """You are Raj's portfolio assistant for a private document collection.
@@ -201,62 +200,10 @@ class ChatService:
         return overlap + title_boost + path_boost + parent_boost + entity_boost + semantic_boost + current_role_boost - float(distance or 0.0)
 
     def _expand_context(self, ranked_hits: list[dict[str, object]]) -> list[dict[str, object]]:
-        expanded: dict[str, dict[str, object]] = {str(hit['id']): hit for hit in ranked_hits}
-        document_cache: dict[tuple[str, str], list[tuple[str, str, dict[str, object]]]] = {}
-        for hit in ranked_hits[:4]:
-            metadata = hit['metadata']
-            key = (str(metadata['logical_document_key']), str(metadata['version_id']))
-            if key not in document_cache:
-                result = vector_store.get_active_document_chunks(settings.chroma_collection_name, *key)
-                document_cache[key] = list(zip(result.get('ids', []), result.get('documents', []), result.get('metadatas', [])))
-            current_chunk_index = int(metadata.get('chunk_index', 0))
-            current_section_path = str(metadata.get('section_path') or '')
-            current_parent = str(metadata.get('parent_section') or '')
-            for neighbor_id, neighbor_doc, neighbor_meta in document_cache[key]:
-                neighbor_chunk_index = int(neighbor_meta.get('chunk_index', 0))
-                same_section = str(neighbor_meta.get('section_path') or '') == current_section_path and current_section_path
-                same_parent = current_parent and str(neighbor_meta.get('parent_section') or '') == current_parent
-                close_neighbor = abs(neighbor_chunk_index - current_chunk_index) <= 1
-                if not same_section and not (same_parent and close_neighbor) and not close_neighbor:
-                    continue
-                expanded[str(neighbor_id)] = {
-                    'id': neighbor_id,
-                    'document': neighbor_doc,
-                    'metadata': neighbor_meta,
-                    'distance': hit['distance'],
-                    'score': max(float(hit['score']) - 0.05 * abs(neighbor_chunk_index - current_chunk_index), -10.0),
-                }
-        return sorted(expanded.values(), key=lambda item: int(item['metadata'].get('chunk_index', 0)))
+        return sorted(ranked_hits, key=lambda item: int(item['metadata'].get('chunk_index', 0)))
 
     def _augment_with_profile_context(self, message: str, hits: list[dict[str, object]]) -> list[dict[str, object]]:
-        if not hits:
-            return hits
-        query_terms = self._query_terms(message)
-        if not query_terms:
-            return hits
-        augmented: dict[str, dict[str, object]] = {str(hit['id']): hit for hit in hits}
-        document_cache: dict[tuple[str, str], list[tuple[str, str, dict[str, object]]]] = {}
-        for hit in hits[:2]:
-            metadata = hit['metadata']
-            key = (str(metadata['logical_document_key']), str(metadata['version_id']))
-            if key not in document_cache:
-                result = vector_store.get_active_document_chunks(settings.chroma_collection_name, *key)
-                document_cache[key] = list(zip(result.get('ids', []), result.get('documents', []), result.get('metadatas', [])))
-            for candidate_id, candidate_doc, candidate_meta in document_cache[key]:
-                candidate_index = int(candidate_meta.get('chunk_index', 999999))
-                if candidate_index > 2:
-                    continue
-                candidate_text = str(candidate_doc).lower()
-                candidate_title = str(candidate_meta.get('section_title') or '').lower()
-                if any(term in candidate_text or term in candidate_title for term in query_terms):
-                    augmented[str(candidate_id)] = {
-                        'id': candidate_id,
-                        'document': candidate_doc,
-                        'metadata': candidate_meta,
-                        'distance': hit.get('distance'),
-                        'score': max(float(hit.get('score', 0.0)) - 0.1, -10.0),
-                    }
-        return sorted(augmented.values(), key=lambda item: int(item['metadata'].get('chunk_index', 0)))
+        return hits
 
     def _focus_section_key(self, message: str, hits: list[dict[str, object]]) -> tuple[str | None, str | None]:
         intent = self._query_intent(message)
@@ -314,25 +261,22 @@ class ChatService:
         return merged
 
     def _retrieve_context(self, message: str) -> tuple[list[dict[str, object]], list[dict[str, object]], str, str | None]:
-        query_embedding = embedding_service.embed_query(message)
         initial_k = max(settings.top_k * 4, 10)
-        results = vector_store.search_active(settings.chroma_collection_name, query_embedding, initial_k)
-        ids = results.get('ids', [[]])[0]
-        documents = results.get('documents', [[]])[0]
-        metadatas = results.get('metadatas', [[]])[0]
-        distances = results.get('distances', [[]])[0]
+        results = simple_retriever.search(message, initial_k)
         hits: list[dict[str, object]] = []
-        for idx, (chunk_id, document, metadata) in enumerate(zip(ids, documents, metadatas)):
-            distance = distances[idx] if idx < len(distances) else None
-            score = self._rerank_score(message, document, metadata, distance)
-            hits.append({'id': chunk_id, 'document': document, 'metadata': metadata, 'distance': distance, 'score': score})
+        for result in results:
+            chunk_id = str(result.get('id') or '')
+            document = str(result.get('document') or '')
+            metadata = result.get('metadata') if isinstance(result.get('metadata'), dict) else {}
+            score = float(result.get('score') or 0.0) + self._rerank_score(message, document, metadata, None)
+            hits.append({'id': chunk_id, 'document': document, 'metadata': metadata, 'distance': None, 'score': score})
         ranked = sorted(hits, key=lambda item: item['score'], reverse=True)
         expanded = self._expand_context(ranked)
         augmented = self._augment_with_profile_context(message, expanded)
         filtered, focus_title = self._filter_hits_for_intent(message, augmented)
         selected = sorted(filtered, key=lambda item: (-float(item.get('score', 0.0)), float(item.get('distance') or 0.0)))[: settings.top_k + 5]
         merged = self._merge_hits_for_prompt(sorted(selected, key=lambda item: int(item['metadata'].get('chunk_index', 0))))
-        return merged, ranked[: settings.top_k], 'gemini', focus_title
+        return merged, ranked[: settings.top_k], 'simple_bm25', focus_title
 
     def _build_work_item_answer(self, message: str, focus_title: str | None, selected_hits: list[dict[str, object]]) -> str | None:
         intent = self._query_intent(message)
@@ -450,9 +394,9 @@ class ChatService:
             # Keep this short to avoid token bloat, but still bias retrieval toward the viewed project.
             retrieval_query = f"{retrieval_query} (Project focus: {active_project_title.strip()})"
 
-        selected_hits, ranked_hits, embedding_backend, focus_title = self._retrieve_context(retrieval_query)
+        selected_hits, ranked_hits, retrieval_backend, focus_title = self._retrieve_context(retrieval_query)
         if not selected_hits:
-            debug = [{'embedding_backend': embedding_backend}] if include_debug else []
+            debug = [{'retrieval_backend': retrieval_backend}] if include_debug else []
             return ChatResponse(
                 answer='I do not know based on the uploaded files.',
                 sources=[],
@@ -484,7 +428,7 @@ class ChatService:
                 )
             )
         if include_debug:
-            debug.append({'embedding_backend': embedding_backend})
+            debug.append({'retrieval_backend': retrieval_backend})
             debug.append({'retrieval_query': retrieval_query})
             debug.append({'query_intent': self._query_intent(retrieval_query)})
             debug.append({'focus_title': focus_title})

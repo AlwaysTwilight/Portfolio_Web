@@ -1,7 +1,6 @@
 fastapi==0.115.9
 uvicorn[standard]==0.34.0
 python-multipart==0.0.20
-chromadb==1.0.7
 google-genai==1.11.0
 llama-parse==0.6.18
 

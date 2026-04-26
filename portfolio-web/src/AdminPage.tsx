@@ -44,7 +44,7 @@ type AdminProject = {
   updatedAt?: string
 }
 
-type ChromaDocument = {
+type RagDocument = {
   logical_document_key: string
   version_id: string
   file_name: string
@@ -88,8 +88,8 @@ function AdminPage() {
   const [projectsLoading, setProjectsLoading] = useState(false)
   const [projectsError, setProjectsError]     = useState<string | null>(null)
   const [projects, setProjects]               = useState<AdminProject[]>([])
-  const [chromaDocs, setChromaDocs]           = useState<ChromaDocument[]>([])
-  const [chromaDocsError, setChromaDocsError] = useState<string | null>(null)
+  const [ragDocs, setRagDocs]                 = useState<RagDocument[]>([])
+  const [ragDocsError, setRagDocsError]       = useState<string | null>(null)
 
   const [newTitle, setNewTitle]           = useState('')
   const [newSummary, setNewSummary]       = useState('')
@@ -155,13 +155,13 @@ function AdminPage() {
     }
   }
 
-  async function loadChromaDocs() {
+  async function loadRagDocs() {
     try {
-      setChromaDocsError(null)
-      const payload = await fetchJson<{ documents: ChromaDocument[] }>('/admin/chroma/documents', { headers: adminHeaders() })
-      setChromaDocs(payload.documents || [])
+      setRagDocsError(null)
+      const payload = await fetchJson<{ documents: RagDocument[] }>('/admin/rag/documents', { headers: adminHeaders() })
+      setRagDocs(payload.documents || [])
     } catch (err) {
-      setChromaDocsError(err instanceof Error ? err.message : 'Could not load Chroma documents.')
+      setRagDocsError(err instanceof Error ? err.message : 'Could not load indexed documents.')
     }
   }
 
@@ -169,7 +169,7 @@ function AdminPage() {
     void loadPortfolio()
     void loadAdminSettings()
     void loadProjects()
-    void loadChromaDocs()
+    void loadRagDocs()
   }, [])
 
   useEffect(() => {
@@ -223,7 +223,7 @@ function AdminPage() {
       form.reset()
       await loadPortfolio()
       await loadProjects()
-      await loadChromaDocs()
+      await loadRagDocs()
     } catch (err) {
       setUploadStatus(err instanceof Error ? err.message : 'Upload failed.')
     } finally {
@@ -318,7 +318,7 @@ function AdminPage() {
     if (!confirm('Activate this version in the backend? This will set it as active for chat.')) return
     try {
       await fetchJson(`/admin/documents/${key}/versions/${versionId}/activate`, { method: 'PUT', headers: adminHeaders() })
-      await loadPortfolio(); await loadChromaDocs()
+      await loadPortfolio(); await loadRagDocs()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Could not activate version.')
     }
@@ -599,15 +599,14 @@ function AdminPage() {
           <h2 className="admin-card-title">Knowledge Base</h2>
           <p className="admin-card-desc">Indexed sources and their ingestion status.</p>
 
-          {/* Chroma active docs */}
           <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--muted)', marginBottom: '0.65rem' }}>
-            Chroma Active
+            Active RAG Sources
           </p>
-          {chromaDocsError && <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.75rem', color: 'var(--danger)', marginBottom: '0.75rem' }}>{chromaDocsError}</p>}
+          {ragDocsError && <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.75rem', color: 'var(--danger)', marginBottom: '0.75rem' }}>{ragDocsError}</p>}
           {loading && <p className="status-text">Loading…</p>}
 
           <div className="doc-list" style={{ marginBottom: '1.5rem' }}>
-            {chromaDocs.slice(0, 12).map(doc => (
+            {ragDocs.slice(0, 12).map(doc => (
               <div className="doc-card" key={`${doc.logical_document_key}:${doc.version_id}`}>
                 <div>
                   <p className="doc-key">{doc.logical_document_key}</p>
@@ -621,8 +620,8 @@ function AdminPage() {
                 </div>
               </div>
             ))}
-            {chromaDocs.length === 0 && !chromaDocsError && (
-              <p className="status-text">No active Chroma documents found yet.</p>
+            {ragDocs.length === 0 && !ragDocsError && (
+              <p className="status-text">No active RAG documents found yet.</p>
             )}
           </div>
 

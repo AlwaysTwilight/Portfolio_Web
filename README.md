@@ -1,13 +1,13 @@
 # Local RAG Backend
 
-This project is a local-first document chatbot backend built with FastAPI, LlamaParse, Gemini, SQLite metadata, and Chroma running in Docker.
+This project is a local-first document chatbot backend built with FastAPI, LlamaParse, Gemini, SQLite metadata, and simple BM25-style local retrieval.
 
 ## What it does
 
-- Upload `PDF`, `DOCX`, and `TXT` files.
+- Upload `PDF`, `DOCX`, `TXT`, `MD`, and `Markdown` files.
 - Create a new version for each upload under a stable `logical_document_key`.
 - Parse content with LlamaParse.
-- Chunk, embed, and index content into Chroma.
+- Chunk and index content into JSON files under `data/processed`.
 - Keep old versions for history.
 - Retrieve only the latest active version by default.
 - Answer questions with Gemini using grounded context.
@@ -22,7 +22,7 @@ This project is a local-first document chatbot backend built with FastAPI, Llama
 docker compose up --build
 ```
 
-The API will be available at `http://localhost:8001`.
+The API will be available at `http://localhost:8000`.
 The Streamlit test UI will be available at `http://localhost:8501`.
 
 ## Helpful endpoints
@@ -50,7 +50,5 @@ python -m venv .venv
 .venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 Copy-Item .env.example .env
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
-
-For local dev, set `CHROMA_HOST=localhost` in `.env` if Chroma is running outside Docker.
