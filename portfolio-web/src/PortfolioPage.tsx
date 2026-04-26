@@ -45,7 +45,7 @@ type PortfolioPayload = {
 type ChatResponse = { answer: string }
 type ChatMessage  = { role: 'user' | 'assistant'; content: string }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
 function fileLabel(path: string) {
   const parts = path.split(/[\\/]/)

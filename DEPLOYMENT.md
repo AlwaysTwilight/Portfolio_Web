@@ -85,6 +85,7 @@ Set this after Vercel deploys:
 
 ```env
 CORS_ALLOW_ORIGINS=https://your-portfolio.vercel.app,https://your-admin.vercel.app
+CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app
 ```
 
 Optional MongoDB Atlas:
@@ -135,6 +136,13 @@ VITE_APP_MODE=portfolio
 VITE_API_BASE_URL=https://your-render-api.onrender.com
 ```
 
+For your current deployment:
+
+```env
+VITE_APP_MODE=portfolio
+VITE_API_BASE_URL=https://portfolio-web-htpn.onrender.com
+```
+
 ### Admin Vercel Project
 
 Environment variables:
@@ -145,10 +153,19 @@ VITE_API_BASE_URL=https://your-render-api.onrender.com
 VITE_PORTFOLIO_ORIGIN=https://your-portfolio.vercel.app
 ```
 
+For your current deployment:
+
+```env
+VITE_APP_MODE=admin
+VITE_API_BASE_URL=https://portfolio-web-htpn.onrender.com
+VITE_PORTFOLIO_ORIGIN=https://portfolio-web-five-tawny.vercel.app
+```
+
 After both frontend projects are deployed, update Render:
 
 ```env
 CORS_ALLOW_ORIGINS=https://your-portfolio.vercel.app,https://your-admin.vercel.app
+CORS_ALLOW_ORIGIN_REGEX=https://.*\.vercel\.app
 ```
 
 Then redeploy the Render backend.

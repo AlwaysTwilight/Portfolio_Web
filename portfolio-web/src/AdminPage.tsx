@@ -52,7 +52,7 @@ type RagDocument = {
   chunk_count: number
 }
 
-const API_BASE_URL      = import.meta.env.VITE_API_BASE_URL      || 'http://localhost:8001'
+const API_BASE_URL      = import.meta.env.VITE_API_BASE_URL      || 'http://localhost:8000'
 const PORTFOLIO_ORIGIN  = import.meta.env.VITE_PORTFOLIO_ORIGIN  || 'http://localhost:3000'
 const ADMIN_TOKEN_KEY   = 'portfolio_admin_token'
 
