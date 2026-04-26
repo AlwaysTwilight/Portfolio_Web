@@ -65,7 +65,9 @@ class SqliteMetadataStore:
                     sort_order INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL,
                     source_logical_document_key TEXT,
-                    source_version_id TEXT
+                    source_version_id TEXT,
+                    what_it_does_json TEXT NOT NULL DEFAULT '[]',
+                    is_visible INTEGER NOT NULL DEFAULT 1
                 )
                 """
             )
@@ -76,6 +78,10 @@ class SqliteMetadataStore:
                     conn.execute("ALTER TABLE portfolio_projects ADD COLUMN source_logical_document_key TEXT")
                 if "source_version_id" not in cols:
                     conn.execute("ALTER TABLE portfolio_projects ADD COLUMN source_version_id TEXT")
+                if "what_it_does_json" not in cols:
+                    conn.execute("ALTER TABLE portfolio_projects ADD COLUMN what_it_does_json TEXT NOT NULL DEFAULT '[]'")
+                if "is_visible" not in cols:
+                    conn.execute("ALTER TABLE portfolio_projects ADD COLUMN is_visible INTEGER NOT NULL DEFAULT 1")
             except Exception:
                 pass
             conn.execute(
@@ -92,23 +98,23 @@ class SqliteMetadataStore:
                 ON document_versions (logical_document_key, upload_timestamp DESC)
                 """
             )
-            conn.execute(
-                """
-                INSERT OR IGNORE INTO app_settings (key, value)
-                VALUES ('open_to_work', 'true')
-                """
-            )
+            # Default settings
+            conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('open_to_work', 'true')")
+            conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('current_location', 'India')")
+            conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('desired_locations', '[]')")
 
-    def list_portfolio_projects(self) -> list[dict[str, Any]]:
+    # ── Portfolio projects ──────────────────────────────────────────────────
+
+    def list_portfolio_projects(self, include_hidden: bool = True) -> list[dict[str, Any]]:
+        query = """
+            SELECT project_id, title, summary, tech_stack_json, source_path, sort_order, updated_at,
+                   source_logical_document_key, source_version_id, what_it_does_json, is_visible
+            FROM portfolio_projects
+            {where}
+            ORDER BY sort_order ASC, updated_at DESC
+        """.format(where="" if include_hidden else "WHERE is_visible = 1")
         with self.connect() as conn:
-            rows = conn.execute(
-                """
-                SELECT project_id, title, summary, tech_stack_json, source_path, sort_order, updated_at,
-                       source_logical_document_key, source_version_id
-                FROM portfolio_projects
-                ORDER BY sort_order ASC, updated_at DESC
-                """
-            ).fetchall()
+            rows = conn.execute(query).fetchall()
         projects: list[dict[str, Any]] = []
         for row in rows:
             item = dict(row)
@@ -116,6 +122,10 @@ class SqliteMetadataStore:
                 tech_stack = json.loads(item.get("tech_stack_json") or "[]")
             except Exception:
                 tech_stack = []
+            try:
+                what_it_does = json.loads(item.get("what_it_does_json") or "[]")
+            except Exception:
+                what_it_does = []
             projects.append(
                 {
                     "id": item["project_id"],
@@ -127,6 +137,8 @@ class SqliteMetadataStore:
                     "updatedAt": item["updated_at"],
                     "sourceLogicalDocumentKey": item.get("source_logical_document_key") or None,
                     "sourceVersionId": item.get("source_version_id") or None,
+                    "whatItDoes": what_it_does if isinstance(what_it_does, list) else [],
+                    "isVisible": bool(item.get("is_visible", 1)),
                 }
             )
         return projects
@@ -140,18 +152,21 @@ class SqliteMetadataStore:
         tech_stack: list[str],
         source_path: str = "Admin",
         sort_order: int = 0,
+        what_it_does: list[str] | None = None,
+        is_visible: bool = True,
         source_logical_document_key: str | None = None,
         source_version_id: str | None = None,
     ) -> str:
         normalized_id = project_id or str(uuid.uuid4())
-        payload = json.dumps(tech_stack or [])
+        tech_payload = json.dumps(tech_stack or [])
+        wid_payload = json.dumps(what_it_does or [])
         with self.connect() as conn:
             conn.execute(
                 """
                 INSERT INTO portfolio_projects (
                     project_id, title, summary, tech_stack_json, source_path, sort_order, updated_at,
-                    source_logical_document_key, source_version_id
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    source_logical_document_key, source_version_id, what_it_does_json, is_visible
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id) DO UPDATE SET
                     title = excluded.title,
                     summary = excluded.summary,
@@ -160,18 +175,22 @@ class SqliteMetadataStore:
                     sort_order = excluded.sort_order,
                     updated_at = excluded.updated_at,
                     source_logical_document_key = excluded.source_logical_document_key,
-                    source_version_id = excluded.source_version_id
+                    source_version_id = excluded.source_version_id,
+                    what_it_does_json = excluded.what_it_does_json,
+                    is_visible = excluded.is_visible
                 """,
                 (
                     normalized_id,
                     title,
                     summary,
-                    payload,
+                    tech_payload,
                     source_path,
                     int(sort_order),
                     utc_now_iso(),
                     source_logical_document_key,
                     source_version_id,
+                    wid_payload,
+                    1 if is_visible else 0,
                 ),
             )
         return normalized_id
@@ -185,7 +204,7 @@ class SqliteMetadataStore:
             row = conn.execute(
                 """
                 SELECT project_id, title, summary, tech_stack_json, source_path, sort_order, updated_at,
-                       source_logical_document_key, source_version_id
+                       source_logical_document_key, source_version_id, what_it_does_json, is_visible
                 FROM portfolio_projects
                 WHERE project_id = ?
                 """,
@@ -198,6 +217,10 @@ class SqliteMetadataStore:
             tech_stack = json.loads(item.get("tech_stack_json") or "[]")
         except Exception:
             tech_stack = []
+        try:
+            what_it_does = json.loads(item.get("what_it_does_json") or "[]")
+        except Exception:
+            what_it_does = []
         return {
             "id": item["project_id"],
             "title": item["title"],
@@ -206,10 +229,13 @@ class SqliteMetadataStore:
             "sourcePath": item["source_path"],
             "sortOrder": int(item.get("sort_order") or 0),
             "updatedAt": item["updated_at"],
-            "whatItDoes": [],
+            "whatItDoes": what_it_does if isinstance(what_it_does, list) else [],
+            "isVisible": bool(item.get("is_visible", 1)),
             "sourceLogicalDocumentKey": item.get("source_logical_document_key") or None,
             "sourceVersionId": item.get("source_version_id") or None,
         }
+
+    # ── Document versions ──────────────────────────────────────────────────
 
     def create_version(
         self,
@@ -332,6 +358,8 @@ class SqliteMetadataStore:
                 ("indexed", version_id),
             )
 
+    # ── Settings ──────────────────────────────────────────────────────────
+
     def get_setting(self, key: str, default: str | None = None) -> str | None:
         with self.connect() as conn:
             row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
@@ -356,6 +384,24 @@ class SqliteMetadataStore:
     def set_open_to_work(self, value: bool) -> None:
         self.set_setting("open_to_work", "true" if value else "false")
 
+    def get_current_location(self) -> str:
+        return self.get_setting("current_location", "India") or "India"
+
+    def set_current_location(self, value: str) -> None:
+        self.set_setting("current_location", value.strip())
+
+    def get_desired_locations(self) -> list[str]:
+        raw = self.get_setting("desired_locations", "[]") or "[]"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
+    def set_desired_locations(self, locations: list[str]) -> None:
+        self.set_setting("desired_locations", json.dumps([loc.strip() for loc in locations if loc.strip()]))
+
+
 class MongoMetadataStore:
     def __init__(self, mongo_uri: str, db_name: str) -> None:
         if not MongoClient:
@@ -372,6 +418,8 @@ class MongoMetadataStore:
         self._projects.create_index([("sort_order", 1), ("updated_at", -1)])
         # Default settings
         self._settings.update_one({"_id": "open_to_work"}, {"$setOnInsert": {"value": "true"}}, upsert=True)
+        self._settings.update_one({"_id": "current_location"}, {"$setOnInsert": {"value": "India"}}, upsert=True)
+        self._settings.update_one({"_id": "desired_locations"}, {"$setOnInsert": {"value": "[]"}}, upsert=True)
         self._migrate_from_sqlite_if_present()
 
     def _migrate_from_sqlite_if_present(self) -> None:
@@ -383,7 +431,6 @@ class MongoMetadataStore:
             if self._versions.estimated_document_count() > 0:
                 return
         except Exception:
-            # If Mongo isn't ready, let the caller fail normally.
             return
 
         sqlite_path = settings.sqlite_path
@@ -424,7 +471,7 @@ class MongoMetadataStore:
             if documents:
                 self._versions.insert_many(documents, ordered=False)
 
-            # Migrate manually added projects (table may not exist in older DBs).
+            # Migrate manually added projects.
             try:
                 project_rows = connection.execute("SELECT * FROM portfolio_projects").fetchall()
                 project_docs = []
@@ -438,6 +485,10 @@ class MongoMetadataStore:
                         tech_stack = json.loads(tech_stack_json)
                     except Exception:
                         tech_stack = []
+                    try:
+                        what_it_does = json.loads(str(item.get("what_it_does_json") or "[]"))
+                    except Exception:
+                        what_it_does = []
                     project_docs.append(
                         {
                             "_id": project_id,
@@ -447,6 +498,8 @@ class MongoMetadataStore:
                             "source_path": str(item.get("source_path") or "Admin"),
                             "sort_order": int(item.get("sort_order") or 0),
                             "updated_at": str(item.get("updated_at") or utc_now_iso()),
+                            "what_it_does": what_it_does if isinstance(what_it_does, list) else [],
+                            "is_visible": bool(int(item.get("is_visible", 1))),
                         }
                     )
                 if project_docs:
@@ -551,6 +604,8 @@ class MongoMetadataStore:
             {"$set": {"is_active": True, "status": "indexed"}},
         )
 
+    # ── Settings ──────────────────────────────────────────────────────────
+
     def get_setting(self, key: str, default: str | None = None) -> str | None:
         row = self._settings.find_one({"_id": key})
         if not row:
@@ -566,8 +621,28 @@ class MongoMetadataStore:
     def set_open_to_work(self, value: bool) -> None:
         self.set_setting("open_to_work", "true" if value else "false")
 
-    def list_portfolio_projects(self) -> list[dict[str, Any]]:
-        rows = list(self._projects.find({}).sort([("sort_order", 1), ("updated_at", -1)]))
+    def get_current_location(self) -> str:
+        return self.get_setting("current_location", "India") or "India"
+
+    def set_current_location(self, value: str) -> None:
+        self.set_setting("current_location", value.strip())
+
+    def get_desired_locations(self) -> list[str]:
+        raw = self.get_setting("desired_locations", "[]") or "[]"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
+    def set_desired_locations(self, locations: list[str]) -> None:
+        self.set_setting("desired_locations", json.dumps([loc.strip() for loc in locations if loc.strip()]))
+
+    # ── Portfolio projects ──────────────────────────────────────────────────
+
+    def list_portfolio_projects(self, include_hidden: bool = True) -> list[dict[str, Any]]:
+        query_filter = {} if include_hidden else {"is_visible": {"$ne": False}}
+        rows = list(self._projects.find(query_filter).sort([("sort_order", 1), ("updated_at", -1)]))
         projects: list[dict[str, Any]] = []
         for row in rows:
             project_id = str(row.get("_id") or row.get("project_id") or "")
@@ -583,6 +658,7 @@ class MongoMetadataStore:
                     "sortOrder": int(row.get("sort_order") or 0),
                     "updatedAt": str(row.get("updated_at") or ""),
                     "whatItDoes": list(row.get("what_it_does") or []),
+                    "isVisible": bool(row.get("is_visible", True)),
                     "sourceLogicalDocumentKey": row.get("source_logical_document_key") or None,
                     "sourceVersionId": row.get("source_version_id") or None,
                 }
@@ -599,6 +675,7 @@ class MongoMetadataStore:
         source_path: str = "Admin",
         sort_order: int = 0,
         what_it_does: list[str] | None = None,
+        is_visible: bool = True,
         source_logical_document_key: str | None = None,
         source_version_id: str | None = None,
     ) -> str:
@@ -615,6 +692,7 @@ class MongoMetadataStore:
                     "sort_order": int(sort_order or 0),
                     "updated_at": now,
                     "what_it_does": what_it_does or [],
+                    "is_visible": is_visible,
                     "source_logical_document_key": source_logical_document_key,
                     "source_version_id": source_version_id,
                 }
@@ -639,6 +717,7 @@ class MongoMetadataStore:
             "sortOrder": int(row.get("sort_order") or 0),
             "updatedAt": str(row.get("updated_at") or ""),
             "whatItDoes": list(row.get("what_it_does") or []),
+            "isVisible": bool(row.get("is_visible", True)),
             "sourceLogicalDocumentKey": row.get("source_logical_document_key") or None,
             "sourceVersionId": row.get("source_version_id") or None,
         }

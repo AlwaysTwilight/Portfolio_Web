@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import re
 from datetime import datetime, timezone
@@ -7,6 +7,7 @@ from app.config import settings
 from app.models import ChatResponse, ConversationTurn, SourceItem
 from app.services.embeddings import embedding_service
 from app.services.llm import llm_service
+from app.services.metadata import metadata_store
 from app.services.vector_store import vector_store
 
 
@@ -18,7 +19,10 @@ Rules:
 - Treat named initiatives/systems/products/workstreams listed under an organization in Experience as valid answers for \"what did Raj work on\" at that org.
 - Do not mix standalone Projects with Experience work items unless the context explicitly links them.
 - Prefer concise, direct answers that preserve dates, role names, employers, metrics, and technologies.
-- If the context is insufficient, say you do not know based on the uploaded files.
+- If the context is insufficient, say you do not know based on the uploaded files, EXCPET for availability/location questions which you should answer using the context below.
+
+Availability & Location Context (Always True):
+{availability_context}
 
 Derived hints:
 {derived_hints}
@@ -494,10 +498,20 @@ class ChatService:
             return ChatResponse(answer=work_item_answer, sources=sources, debug=debug if include_debug else None)
 
         conversation_history_section = self._build_conversation_history_section(history)
+        
+        open_to_work = metadata_store.get_open_to_work()
+        current_loc = metadata_store.get_current_location()
+        desired_loc = metadata_store.get_desired_locations()
+        avail_ctx = f"Raj is {'open to new work opportunities' if open_to_work else 'currently not looking for roles'}. "
+        avail_ctx += f"Current location: {current_loc}. "
+        if desired_loc:
+            avail_ctx += f"Desired locations for work: {', '.join(desired_loc)}."
+
         prompt = PROMPT_TEMPLATE.format(
             context='\n\n'.join(context_parts),
             question=normalized_message,
             today=datetime.now(timezone.utc).date().isoformat(),
+            availability_context=avail_ctx,
             derived_hints=self._build_derived_hints(retrieval_query, [str(hit['document']) for hit in selected_hits]),
             conversation_history_section=conversation_history_section,
         )

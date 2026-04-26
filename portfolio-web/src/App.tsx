@@ -6,7 +6,7 @@ import PortfolioPage from './PortfolioPage'
 function App() {
   const mode = (import.meta.env.VITE_APP_MODE || 'portfolio').toLowerCase()
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Routes>
         {mode === 'admin' ? (
           <>

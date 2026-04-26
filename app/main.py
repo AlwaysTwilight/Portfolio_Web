@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from pathlib import Path
 
@@ -19,24 +19,32 @@ from app.services.vector_store import vector_store
 
 app = FastAPI(title="Local RAG Backend", version="0.1.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
+cors_origins = (
+    settings.cors_allow_origins
+    if settings.cors_allow_origins
+    else [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
         "http://localhost:8501",
         "http://127.0.0.1:8501",
-    ],
+    ]
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-class UpdateOpenToWorkRequest(BaseModel):
+class UpdateSettingsRequest(BaseModel):
     open_to_work: bool
+    current_location: str
+    desired_locations: list[str]
 
 
 class UpsertProjectRequest(BaseModel):
@@ -46,6 +54,7 @@ class UpsertProjectRequest(BaseModel):
     source_path: str = "Admin"
     sort_order: int = 0
     what_it_does: list[str] = []
+    is_visible: bool = True
     source_logical_document_key: str | None = None
     source_version_id: str | None = None
 
@@ -105,14 +114,24 @@ def portfolio() -> dict:
 
 @app.get("/admin/settings")
 def get_admin_settings() -> dict:
-    return {"open_to_work": metadata_store.get_open_to_work()}
+    return {
+        "open_to_work": metadata_store.get_open_to_work(),
+        "current_location": metadata_store.get_current_location(),
+        "desired_locations": metadata_store.get_desired_locations(),
+    }
 
 
-@app.put("/admin/settings/open-to-work")
-def update_open_to_work(request: UpdateOpenToWorkRequest, x_admin_token: str | None = Header(default=None)) -> dict:
+@app.put("/admin/settings")
+def update_admin_settings(request: UpdateSettingsRequest, x_admin_token: str | None = Header(default=None)) -> dict:
     _require_admin(x_admin_token)
     metadata_store.set_open_to_work(request.open_to_work)
-    return {"open_to_work": metadata_store.get_open_to_work()}
+    metadata_store.set_current_location(request.current_location)
+    metadata_store.set_desired_locations(request.desired_locations)
+    return {
+        "open_to_work": metadata_store.get_open_to_work(),
+        "current_location": metadata_store.get_current_location(),
+        "desired_locations": metadata_store.get_desired_locations(),
+    }
 
 
 @app.get("/admin/projects")
@@ -138,6 +157,7 @@ def create_admin_project(request: UpsertProjectRequest, x_admin_token: str | Non
         source_path=(request.source_path or "Admin").strip() or "Admin",
         sort_order=int(request.sort_order or 0),
         what_it_does=[item.strip() for item in request.what_it_does if item.strip()],
+        is_visible=request.is_visible,
         source_logical_document_key=request.source_logical_document_key,
         source_version_id=request.source_version_id,
     )
@@ -159,6 +179,7 @@ def update_admin_project(
         source_path=(request.source_path or "Admin").strip() or "Admin",
         sort_order=int(request.sort_order or 0),
         what_it_does=[item.strip() for item in request.what_it_does if item.strip()],
+        is_visible=request.is_visible,
         source_logical_document_key=request.source_logical_document_key,
         source_version_id=request.source_version_id,
     )
@@ -170,6 +191,13 @@ def delete_admin_project(project_id: str, x_admin_token: str | None = Header(def
     _require_admin(x_admin_token)
     metadata_store.delete_portfolio_project(project_id)
     return {"deleted": True}
+
+
+@app.put("/admin/documents/{logical_document_key}/versions/{version_id}/activate")
+def activate_document_version(logical_document_key: str, version_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    metadata_store.activate_version(logical_document_key, version_id)
+    return {"status": "activated"}
 
 
 @app.get("/projects/{project_id}")

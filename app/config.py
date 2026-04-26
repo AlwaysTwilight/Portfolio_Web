@@ -19,6 +19,9 @@ def _load_env_file() -> None:
 
 _load_env_file()
 
+def _parse_csv(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -44,6 +47,7 @@ class Settings:
     admin_token: str = os.getenv('ADMIN_TOKEN', '')
     mongodb_uri: str = os.getenv('MONGODB_URI', '')
     mongodb_db: str = os.getenv('MONGODB_DB', 'portfolio')
+    cors_allow_origins: list[str] = _parse_csv(os.getenv("CORS_ALLOW_ORIGINS", ""))
 
 
 settings = Settings()

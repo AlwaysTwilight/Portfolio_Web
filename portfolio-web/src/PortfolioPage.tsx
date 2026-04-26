@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 
 type ExperienceItem = {
   company: string
@@ -18,6 +19,7 @@ type ProjectCard = {
   summary: string
   techStack: string[]
   sourcePath: string
+  isVisible?: boolean
 }
 
 type ProjectDetails = ProjectCard & {
@@ -31,6 +33,8 @@ type PortfolioPayload = {
     headline: string
     about: string
     openToWork: boolean
+    currentLocation?: string
+    desiredLocations?: string[]
     experience: ExperienceItem[]
     skills: SkillCategory[]
     resumeProjects: string[]
@@ -38,14 +42,8 @@ type PortfolioPayload = {
   projects: ProjectCard[]
 }
 
-type ChatResponse = {
-  answer: string
-}
-
-type ChatMessage = {
-  role: 'user' | 'assistant'
-  content: string
-}
+type ChatResponse = { answer: string }
+type ChatMessage  = { role: 'user' | 'assistant'; content: string }
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8001'
 
@@ -55,29 +53,67 @@ function fileLabel(path: string) {
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init)
-  if (!response.ok) {
-    throw new Error(await response.text())
-  }
-  return response.json() as Promise<T>
+  const res = await fetch(`${API_BASE_URL}${path}`, init)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json() as Promise<T>
+}
+
+/* ── Sun icon ─────────────────────────────────────── */
+function SunIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="5"/>
+      <line x1="12" y1="1" x2="12" y2="3"/>
+      <line x1="12" y1="21" x2="12" y2="23"/>
+      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+      <line x1="1" y1="12" x2="3" y2="12"/>
+      <line x1="21" y1="12" x2="23" y2="12"/>
+      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+    </svg>
+  )
+}
+
+/* ── Moon icon ────────────────────────────────────── */
+function MoonIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+    </svg>
+  )
 }
 
 function PortfolioPage() {
-  const [portfolio, setPortfolio] = useState<PortfolioPayload | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [widgetOpen, setWidgetOpen] = useState(false)
-  const [chatInput, setChatInput] = useState('')
-  const [chatting, setChatting] = useState(false)
-  const [messages, setMessages] = useState<ChatMessage[]>([
+  const [portfolio, setPortfolio]             = useState<PortfolioPayload | null>(null)
+  const [loading, setLoading]                 = useState(true)
+  const [error, setError]                     = useState<string | null>(null)
+  const [theme, setTheme]                     = useState<'light'|'dark'>(() =>
+    (localStorage.getItem('theme') as 'light'|'dark') ||
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+  )
+  const [widgetOpen, setWidgetOpen]           = useState(false)
+  const [chatInput, setChatInput]             = useState('')
+  const [chatting, setChatting]               = useState(false)
+  const [messages, setMessages]               = useState<ChatMessage[]>([
     { role: 'assistant', content: "Hi! I'm Raj's portfolio assistant. Ask me about his projects, ML systems, or AI engineering work." },
   ])
-  const [activeProject, setActiveProject] = useState<ProjectCard | null>(null)
+  const [activeProject, setActiveProject]     = useState<ProjectCard | null>(null)
   const [projectModalOpen, setProjectModalOpen] = useState(false)
-  const [projectDetails, setProjectDetails] = useState<ProjectDetails | null>(null)
+  const [projectDetails, setProjectDetails]   = useState<ProjectDetails | null>(null)
   const [projectDetailsLoading, setProjectDetailsLoading] = useState(false)
-  const [projectDetailsError, setProjectDetailsError] = useState<string | null>(null)
+  const [projectDetailsError, setProjectDetailsError]     = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  /* Apply theme to document */
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  function toggleTheme() {
+    setTheme(t => t === 'light' ? 'dark' : 'light')
+  }
 
   async function loadPortfolio() {
     try {
@@ -92,20 +128,22 @@ function PortfolioPage() {
     }
   }
 
-  useEffect(() => {
-    void loadPortfolio()
-  }, [])
+  useEffect(() => { void loadPortfolio() }, [])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, chatting])
 
-  const featuredProjects = useMemo(() => portfolio?.projects ?? [], [portfolio])
-  const experience = portfolio?.profile.experience ?? []
-  const skills = portfolio?.profile.skills ?? []
-  const resumeProjects = portfolio?.profile.resumeProjects ?? []
-  const activeExperience = experience[0]
-  const openToWork = portfolio?.profile.openToWork ?? true
+  const featuredProjects  = useMemo(() => (portfolio?.projects ?? []).filter(p => p.isVisible !== false), [portfolio])
+  const experience        = portfolio?.profile.experience ?? []
+  const skills            = portfolio?.profile.skills ?? []
+  const resumeProjects    = portfolio?.profile.resumeProjects ?? []
+  const activeExperience  = experience[0]
+  const openToWork        = portfolio?.profile.openToWork ?? true
+
+  const scrollTo = useCallback((id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
 
   async function openProject(project: ProjectCard) {
     setActiveProject(project)
@@ -113,27 +151,20 @@ function PortfolioPage() {
     setProjectDetails(null)
     setProjectDetailsError(null)
     setProjectDetailsLoading(true)
-
     try {
       const payload = await fetchJson<{ project: ProjectDetails }>(`/projects/${encodeURIComponent(project.id)}`)
       setProjectDetails(payload.project)
     } catch (err) {
-      // Placeholder cards (inferred from Resume) won't exist in the backend yet.
       setProjectDetails({ ...project, whatItDoes: [] })
-      setProjectDetailsError(err instanceof Error ? err.message : 'Could not load project details.')
+      setProjectDetailsError(err instanceof Error ? err.message : 'Could not load details.')
     } finally {
       setProjectDetailsLoading(false)
     }
-
-    // If the chat widget is open, proactively cue the assistant.
     if (widgetOpen) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: 'assistant',
-          content: `I can see you're looking at "${project.title}". Feel free to ask me anything about this project.`,
-        },
-      ])
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `I can see you're looking at "${project.title}". Feel free to ask me anything about it.`,
+      }])
     }
   }
 
@@ -146,30 +177,20 @@ function PortfolioPage() {
   async function sendMessage() {
     const prompt = chatInput.trim()
     if (!prompt || chatting) return
-
     const nextMessages: ChatMessage[] = [...messages, { role: 'user', content: prompt }]
     setMessages(nextMessages)
     setChatInput('')
     setChatting(true)
-
     try {
-      const history = messages.slice(1).map((m) => ({ role: m.role, content: m.content }))
+      const history = messages.slice(1).map(m => ({ role: m.role, content: m.content }))
       const result = await fetchJson<ChatResponse>('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: prompt,
-          include_debug: false,
-          history,
-          active_project_title: activeProject?.title || null,
-        }),
+        body: JSON.stringify({ message: prompt, include_debug: false, history, active_project_title: activeProject?.title || null }),
       })
       setMessages([...nextMessages, { role: 'assistant', content: result.answer }])
     } catch (err) {
-      setMessages([
-        ...nextMessages,
-        { role: 'assistant', content: err instanceof Error ? err.message : 'Chat request failed.' },
-      ])
+      setMessages([...nextMessages, { role: 'assistant', content: err instanceof Error ? err.message : 'Chat request failed.' }])
     } finally {
       setChatting(false)
     }
@@ -177,183 +198,239 @@ function PortfolioPage() {
 
   return (
     <div className="page-shell">
-      <div className="ambient ambient-a" />
-      <div className="ambient ambient-b" />
 
-      {/* Admin UI runs on a separate port and isn't linked from the public portfolio. */}
+      {/* ── Top Navigation ── */}
+      <nav className="topnav" role="navigation">
+        <div className="topnav-inner">
+          <span className="nav-logo">
+            {portfolio?.profile.name ?? 'Raj Sahoo'}<span>.</span>
+          </span>
 
+          <div className="nav-links">
+            <button className="nav-link" onClick={() => scrollTo('projects')} type="button">Projects</button>
+            <button className="nav-link" onClick={() => scrollTo('experience')} type="button">Experience</button>
+            <button className="nav-link" onClick={() => scrollTo('skills')} type="button">Skills</button>
+          </div>
+
+          <div className="nav-actions">
+            {openToWork && (
+              <span className="nav-badge">
+                <span className="nav-badge-dot" />
+                Open to work
+              </span>
+            )}
+            <button
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+              type="button"
+            >
+              {theme === 'light' ? <MoonIcon /> : <SunIcon />}
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      {/* ── Main Content ── */}
       <main className="page">
-        {/* Hero */}
-        <section className="hero card-panel">
-          <div>
-            <p className="eyebrow">AI Systems | Production ML | Applied Research</p>
-            <h1>{portfolio?.profile.name ?? 'Raj Sahoo'}</h1>
-            <p className="headline">{portfolio?.profile.headline ?? 'AI/ML Software Developer'}</p>
-            <p className="about-copy">
+
+        {/* ── Hero ── */}
+        <section className="hero" aria-label="Introduction">
+          <div className="hero-left">
+            <p className="eyebrow">
+              <span className="eyebrow-line" />
+              AI Systems · Production ML · Applied Research
+            </p>
+            <h1 className="hero-name">
+              {portfolio?.profile.name ?? 'Raj Sahoo'}
+            </h1>
+            <p className="hero-title">
+              {portfolio?.profile.headline ?? 'AI/ML Software Developer'}
+            </p>
+            <p className="hero-desc">
               {portfolio?.profile.about ?? 'Building intelligent systems at the intersection of research and production.'}
             </p>
-            <div className="hero-meta">
-              <span>{portfolio?.profile.location ?? 'India'}</span>
-              <span>{featuredProjects.length} projects indexed</span>
-              <span>{experience.length} roles</span>
+            <div className="hero-cta-row">
+              <button className="btn-primary" onClick={() => setWidgetOpen(true)} type="button">
+                Ask the AI assistant
+              </button>
+              <button className="btn-ghost" onClick={() => scrollTo('projects')} type="button">
+                View projects
+              </button>
             </div>
           </div>
 
-          <div className="hero-side">
-            <div className={`hero-badge ${openToWork ? 'badge-live' : 'badge-muted'}`}>
-              {openToWork ? 'Open to new roles' : 'Currently focused'}
+          <div className="hero-right">
+            <div className="hero-stat-card">
+              <p className="stat-label">Location</p>
+              <p className="stat-value">{(portfolio?.profile.currentLocation || portfolio?.profile.location) ?? 'India'}</p>
             </div>
-
-            <p>
-              I ship production-grade AI products, retrieval systems, agent pipelines, and intelligent internal tooling.
-              This portfolio is grounded in a document index and powered by a live conversational assistant.
-            </p>
-
-            {activeExperience ? (
-              <div className="hero-focus">
-                <strong>Current</strong>
-                <p>
-                  {activeExperience.company}
-                  {activeExperience.dateRange ? ` | ${activeExperience.dateRange}` : ''}
-                </p>
+            <div className="hero-stat-card">
+              <p className="stat-label">Status</p>
+              <p className={`stat-value ${openToWork ? 'accent' : ''}`}>
+                {openToWork ? (
+                  <>
+                    Open to new roles
+                    {portfolio?.profile.desiredLocations && portfolio.profile.desiredLocations.length > 0 && (
+                      <span style={{display: 'block', fontSize: '0.85em', color: 'var(--text)', fontWeight: 'normal', marginTop: '0.15rem'}}>
+                        {portfolio.profile.desiredLocations.join(', ')}
+                      </span>
+                    )}
+                  </>
+                ) : 'Currently focused'}
+              </p>
+            </div>
+            {activeExperience && (
+              <div className="hero-stat-card">
+                <p className="stat-label">Current role</p>
+                <p className="stat-value">{activeExperience.company}</p>
+                {activeExperience.dateRange && (
+                  <div className="hero-meta-row">
+                    <span className="meta-pill">{activeExperience.dateRange}</span>
+                  </div>
+                )}
               </div>
-            ) : null}
+            )}
+            <div className="hero-stat-card">
+              <p className="stat-label">Portfolio</p>
+              <p className="stat-value">{featuredProjects.length} projects indexed</p>
+            </div>
           </div>
         </section>
 
-        {/* Featured Projects */}
-        <section className="card-panel">
-          <div className="section-heading">
-            <h2>Featured Projects</h2>
-            <p>Production work across conversational AI, retrieval systems, and ML pipelines.</p>
+        {error && <div className="error-banner" role="alert">{error}</div>}
+        {loading && <p className="status-text">Loading portfolio data…</p>}
+
+        {/* ── Featured Projects ── */}
+        <section className="section" id="projects" aria-labelledby="projects-heading">
+          <div className="section-header">
+            <h2 className="section-title" id="projects-heading">Featured Projects</h2>
+            <span className="section-sub">{featuredProjects.length} projects</span>
           </div>
           <div className="project-grid">
             {featuredProjects.map((project) => (
               <button
-                className="project-card project-card-button"
+                className="project-card"
                 key={project.id}
                 onClick={() => void openProject(project)}
                 type="button"
               >
-                <div className="project-topline">
-                  <h3>{project.title}</h3>
-                  <span className="project-source">{fileLabel(project.sourcePath)}</span>
-                </div>
+                <span className="project-card-tag">{fileLabel(project.sourcePath)}</span>
+                <h3>{project.title}</h3>
                 <p>{project.summary}</p>
-                {project.techStack.length ? (
-                  <div className="chip-row">
-                    {project.techStack.slice(0, 8).map((tech) => (
-                      <span className="chip chip-accent" key={tech}>{tech}</span>
+                {project.techStack.length > 0 && (
+                  <div className="tech-pills">
+                    {project.techStack.slice(0, 6).map(tech => (
+                      <span className="tech-pill" key={tech}>{tech}</span>
                     ))}
                   </div>
-                ) : null}
+                )}
               </button>
             ))}
           </div>
         </section>
 
-        {/* Experience + Skills */}
-        <div className="grid two-up">
-          <div className="card-panel">
-            <div className="section-heading">
-              <h2>Experience</h2>
-              <p>Production roles that shaped my approach to AI engineering.</p>
-            </div>
-            <div className="stack-list">
-              {experience.map((item) => (
-                <article className="experience-card" key={item.company}>
-                  <div className="experience-topline">
-                    <h3>{item.company}</h3>
-                    <span>{item.dateRange ?? 'Current'}</span>
-                  </div>
-                  <ul>
-                    {item.items.slice(0, 6).map((work) => (
+        {/* ── Experience ── */}
+        <section className="section" id="experience" aria-labelledby="experience-heading">
+          <div className="section-header">
+            <h2 className="section-title" id="experience-heading">Experience</h2>
+            <span className="section-sub">{experience.length} roles</span>
+          </div>
+          <div className="experience-list">
+            {experience.map((item) => (
+              <article className="experience-item" key={item.company}>
+                <div className="exp-left">
+                  <p className="exp-date">{item.dateRange ?? 'Current'}</p>
+                  <p className="exp-company">{item.company}</p>
+                </div>
+                <div className="exp-right">
+                  <h3 className="exp-role">{item.company}</h3>
+                  <ul className="exp-items">
+                    {item.items.slice(0, 5).map(work => (
                       <li key={work}>{work}</li>
                     ))}
                   </ul>
                   {item.highlights.length > 0 && (
-                    <p className="experience-note">{item.highlights[0]}</p>
+                    <p className="exp-highlight">{item.highlights[0]}</p>
                   )}
-                </article>
-              ))}
-            </div>
-          </div>
-
-          <div className="card-panel">
-            <div className="section-heading">
-              <h2>Tech Stack</h2>
-              <p>Tools I rely on to build and ship AI systems end-to-end.</p>
-            </div>
-            <div className="skill-grid">
-              {skills.map((skill) => (
-                <article className="skill-card" key={skill.category}>
-                  <h3>{skill.category}</h3>
-                  <div className="chip-row">
-                    {skill.items.slice(0, 7).map((item) => (
-                      <span className="chip" key={item}>{item}</span>
-                    ))}
-                  </div>
-                </article>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Additional Projects */}
-        <section className="card-panel compact-panel">
-          <div className="section-heading">
-            <h2>More Work</h2>
-            <p>Additional domains covered in the knowledge base. Ask the assistant about any of these.</p>
-          </div>
-          <div className="chip-row">
-            {resumeProjects.map((project) => (
-              <span className="chip" key={project}>{project}</span>
+                </div>
+              </article>
             ))}
           </div>
         </section>
 
-        {loading && <div className="card-panel"><p className="status-text">Loading portfolio data...</p></div>}
-        {error && <div className="card-panel error-box"><p>{error}</p></div>}
+        {/* ── Skills ── */}
+        <section className="section" id="skills" aria-labelledby="skills-heading">
+          <div className="section-header">
+            <h2 className="section-title" id="skills-heading">Skills</h2>
+            <span className="section-sub">{skills.length} categories</span>
+          </div>
+          <div className="skills-table">
+            {skills.map((skill) => (
+              <div className="skill-row" key={skill.category}>
+                <span className="skill-cat-label">{skill.category}</span>
+                <div className="skill-chips">
+                  {skill.items.slice(0, 10).map(item => (
+                    <span className="chip" key={item}>{item}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── More Work ── */}
+        {resumeProjects.length > 0 && (
+          <section className="section" aria-labelledby="more-heading">
+            <div className="section-header">
+              <h2 className="section-title" id="more-heading">More Work</h2>
+              <span className="section-sub">Additional topics in the knowledge base</span>
+            </div>
+            <div className="more-tags">
+              {resumeProjects.map(project => (
+                <span className="more-tag" key={project}>{project}</span>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── Footer ── */}
+        <footer className="page-footer">
+          <span className="footer-name">{portfolio?.profile.name ?? 'Raj Sahoo'}</span>
+          <span className="footer-copy">AI/ML Engineer · {(portfolio?.profile.currentLocation || portfolio?.profile.location) ?? 'India'}</span>
+        </footer>
+
       </main>
 
-      {/* Chat widget */}
-      <div className="chat-widget">
+      {/* ── Chat Widget ── */}
+      <div className="chat-widget" role="complementary" aria-label="Portfolio assistant">
         {!widgetOpen ? (
           <button
-            className="widget-toggle"
-            onClick={() => {
-              setWidgetOpen(true)
-              if (activeProject) {
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    role: 'assistant',
-                    content: `I can see you're looking at "${activeProject.title}". Feel free to ask me anything about this project.`,
-                  },
-                ])
-              }
-            }}
+            className="chat-fab"
+            onClick={() => setWidgetOpen(true)}
             type="button"
           >
+            <span className="chat-fab-dot" />
             Ask the AI
           </button>
-        ) : null}
-
-        {widgetOpen && (
+        ) : (
           <div className="widget-panel">
             <div className="widget-header">
-              <div className="widget-header-row">
-                <div>
-                  <strong>Portfolio Assistant</strong>
-                  <p>Grounded in Raj&apos;s indexed documents</p>
-                </div>
-                <button className="widget-close" onClick={() => setWidgetOpen(false)} type="button">
-                  Close
-                </button>
+              <div className="widget-header-text">
+                <strong>Portfolio Assistant</strong>
+                <p>Grounded in Raj's indexed documents</p>
               </div>
+              <button
+                className="widget-close-btn"
+                onClick={() => setWidgetOpen(false)}
+                aria-label="Close assistant"
+                type="button"
+              >
+                ×
+              </button>
             </div>
 
-            <div className="widget-messages">
+            <div className="widget-messages" role="log" aria-live="polite">
               {messages.map((message, index) => (
                 <div
                   className={`message ${message.role}`}
@@ -362,13 +439,10 @@ function PortfolioPage() {
                   <p>{message.content}</p>
                 </div>
               ))}
-
               {chatting && (
-                <div className="message assistant typing">
-                  <div className="typing-indicator" aria-label="Assistant is thinking">
-                    <span />
-                    <span />
-                    <span />
+                <div className="message assistant typing" aria-label="Assistant is thinking">
+                  <div className="typing-indicator">
+                    <span /><span /><span />
                   </div>
                 </div>
               )}
@@ -377,89 +451,99 @@ function PortfolioPage() {
 
             <div className="widget-input-row">
               <input
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') void sendMessage() }}
-                placeholder="Ask about projects, skills, experience..."
+                className="widget-input"
+                onChange={e => setChatInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') void sendMessage() }}
+                placeholder="Ask about projects, skills, experience…"
                 type="text"
                 value={chatInput}
+                aria-label="Message input"
               />
               <button
-                className="primary-button"
+                className="widget-send"
                 disabled={chatting}
                 onClick={() => void sendMessage()}
                 type="button"
               >
-                {chatting ? '...' : 'Send'}
+                {chatting ? '…' : 'Send'}
               </button>
             </div>
           </div>
         )}
       </div>
 
-      {projectModalOpen ? (
+      {/* ── Project Modal ── */}
+      {projectModalOpen && (
         <div
           className="modal-overlay"
-          onClick={(event) => {
-            if (event.currentTarget === event.target) closeProject()
-          }}
+          onClick={e => { if (e.currentTarget === e.target) closeProject() }}
           role="presentation"
         >
-          <div className="modal" role="dialog" aria-modal="true">
+          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
             <div className="modal-header">
               <div>
-                <p className="eyebrow">Project</p>
-                <h2>{activeProject?.title || 'Project'}</h2>
+                <p className="modal-tag">Project</p>
+                <h2 id="modal-title">{activeProject?.title ?? 'Project'}</h2>
               </div>
-              <button className="widget-toggle" onClick={closeProject} type="button">
-                Close
+              <button
+                className="modal-close"
+                onClick={closeProject}
+                aria-label="Close project details"
+                type="button"
+              >
+                ×
               </button>
             </div>
 
-            {projectDetailsLoading ? <p className="status-text">Loading project details...</p> : null}
-            {projectDetailsError ? <p className="status-text" style={{ color: 'var(--danger)' }}>{projectDetailsError}</p> : null}
+            {projectDetailsLoading && <p className="status-text" style={{ padding: '1.5rem 2rem' }}>Loading…</p>}
 
-            {projectDetails ? (
+            {projectDetails && (
               <div className="modal-body">
-                <section className="modal-section">
-                  <h3>What it is</h3>
-                  <p className="status-text">{projectDetails.summary}</p>
-                </section>
+                <div className="modal-section">
+                  <p className="modal-section-label">Overview</p>
+                  <p>{projectDetails.summary}</p>
+                </div>
 
-                {projectDetails.whatItDoes && projectDetails.whatItDoes.length ? (
-                  <section className="modal-section">
-                    <h3>What it does</h3>
+                {projectDetails.whatItDoes && projectDetails.whatItDoes.length > 0 ? (
+                  <div className="modal-section">
+                    <p className="modal-section-label">What it does</p>
                     <ul className="modal-list">
-                      {projectDetails.whatItDoes.map((line) => (
+                      {projectDetails.whatItDoes.map(line => (
                         <li key={line}>{line}</li>
                       ))}
                     </ul>
-                  </section>
+                  </div>
                 ) : (
-                  <section className="modal-section">
-                    <h3>What it does</h3>
-                    <p className="status-text">
-                      Upload this project&apos;s markdown/PDF in Admin with "Create or update a project card" enabled to generate details here.
+                  <div className="modal-section">
+                    <p className="modal-section-label">What it does</p>
+                    <p style={{ color: 'var(--faint)', fontSize: '0.875rem' }}>
+                      Upload this project's document in Admin with "Create or update a project card" enabled to generate details here.
                     </p>
-                  </section>
+                  </div>
                 )}
 
-                <section className="modal-section">
-                  <h3>Tech stack</h3>
-                  {projectDetails.techStack.length ? (
-                    <div className="chip-row">
-                      {projectDetails.techStack.map((tech) => (
-                        <span className="chip chip-accent" key={tech}>{tech}</span>
+                {projectDetails.techStack.length > 0 && (
+                  <div className="modal-section">
+                    <p className="modal-section-label">Tech Stack</p>
+                    <div className="tech-pills" style={{ marginTop: 0 }}>
+                      {projectDetails.techStack.map(tech => (
+                        <span className="tech-pill" key={tech}>{tech}</span>
                       ))}
                     </div>
-                  ) : (
-                    <p className="status-text">No tech stack extracted yet.</p>
-                  )}
-                </section>
+                  </div>
+                )}
+
+                {projectDetailsError && (
+                  <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.75rem', color: 'var(--faint)' }}>
+                    {projectDetailsError}
+                  </p>
+                )}
               </div>
-            ) : null}
+            )}
           </div>
         </div>
-      ) : null}
+      )}
+
     </div>
   )
 }

@@ -297,6 +297,8 @@ class PortfolioService:
                 **header,
                 "about": about,
                 "openToWork": metadata_store.get_open_to_work(),
+                "currentLocation": metadata_store.get_current_location(),
+                "desiredLocations": metadata_store.get_desired_locations(),
                 "experience": experience,
                 "skills": skills,
                 "resumeProjects": resume_projects,
