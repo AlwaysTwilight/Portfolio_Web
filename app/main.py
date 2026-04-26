@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -102,6 +102,11 @@ def on_startup() -> None:
     _backfill_active_versions()
 
 
+@app.get("/")
+def root() -> dict:
+    return {"message": "API running"}
+
+
 @app.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     return HealthResponse(status="ok")
@@ -143,7 +148,10 @@ def list_admin_projects(x_admin_token: str | None = Header(default=None)) -> dic
 @app.get("/admin/chroma/documents")
 def list_chroma_documents(x_admin_token: str | None = Header(default=None)) -> dict:
     _require_admin(x_admin_token)
-    return {"documents": vector_store.list_active_documents(settings.chroma_collection_name)}
+    try:
+        return {"documents": vector_store.list_active_documents(settings.chroma_collection_name)}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @app.post("/admin/projects")

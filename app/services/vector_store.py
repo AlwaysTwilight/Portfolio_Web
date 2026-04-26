@@ -14,7 +14,14 @@ class VectorStore:
 
     def _ensure_client(self) -> chromadb.HttpClient:
         if self._client is None:
-            self._client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+            try:
+                self._client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
+                self._client.heartbeat()
+            except Exception:  # noqa: BLE001
+                self._client = None
+                raise RuntimeError(
+                    f"Could not connect to Chroma at {settings.chroma_host}:{settings.chroma_port}"
+                ) from exc
         return self._client
 
     def _get_collection(self, collection_name: str):
@@ -29,8 +36,13 @@ class VectorStore:
                     collection = client.get_or_create_collection(name=collection_name, metadata=desired_metadata)
                 else:
                     collection = existing
-            except Exception:  # noqa: BLE001
-                collection = client.get_or_create_collection(name=collection_name, metadata=desired_metadata)
+            except Exception as exc:  # noqa: BLE001
+                try:
+                    collection = client.get_or_create_collection(name=collection_name, metadata=desired_metadata)
+                except Exception as create_exc:  # noqa: BLE001
+                    raise RuntimeError(
+                        f"Could not open Chroma collection '{collection_name}'"
+                    ) from create_exc
             self._collections[collection_name] = collection
         return self._collections[collection_name]
 

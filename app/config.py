@@ -1,7 +1,7 @@
 ﻿from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -17,10 +17,11 @@ def _load_env_file() -> None:
         os.environ.setdefault(key.strip(), value.strip())
 
 
-_load_env_file()
-
 def _parse_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+_load_env_file()
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,9 @@ class Settings:
     admin_token: str = os.getenv('ADMIN_TOKEN', '')
     mongodb_uri: str = os.getenv('MONGODB_URI', '')
     mongodb_db: str = os.getenv('MONGODB_DB', 'portfolio')
-    cors_allow_origins: list[str] = _parse_csv(os.getenv("CORS_ALLOW_ORIGINS", ""))
+    cors_allow_origins: list[str] = field(
+        default_factory=lambda: _parse_csv(os.getenv("CORS_ALLOW_ORIGINS", ""))
+    )
 
 
 settings = Settings()
