@@ -13,8 +13,29 @@ type DocumentSummary = {
   }>
 }
 
+type ExperienceItem = {
+  company: string
+  dateRange?: string
+  items: string[]
+  highlights: string[]
+}
+
+type SkillCategory = {
+  category: string
+  items: string[]
+}
+
 type PortfolioPayload = {
-  profile: { openToWork: boolean }
+  profile: {
+    name?: string
+    location?: string
+    headline?: string
+    about?: string
+    eyebrow?: string
+    openToWork: boolean
+    experience?: ExperienceItem[]
+    skills?: SkillCategory[]
+  }
   documents: DocumentSummary[]
 }
 
@@ -30,6 +51,13 @@ type AdminSettings = {
   open_to_work: boolean 
   current_location?: string
   desired_locations?: string[]
+  name?: string
+  location?: string
+  headline?: string
+  about?: string
+  eyebrow?: string
+  experience?: ExperienceItem[]
+  skills?: SkillCategory[]
 }
 
 type AdminProject = {
@@ -65,6 +93,41 @@ function slugify(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
 }
 
+function experienceToText(items: ExperienceItem[] = []) {
+  return items.map(item => [
+    item.company,
+    item.dateRange || '',
+    (item.items || []).join(' | '),
+    (item.highlights || []).join(' | '),
+  ].join('\n')).join('\n---\n')
+}
+
+function textToExperience(value: string): ExperienceItem[] {
+  return value.split(/\n-{3,}\n/g).map(block => {
+    const [company = '', dateRange = '', items = '', highlights = ''] = block.split('\n')
+    return {
+      company: company.trim(),
+      dateRange: dateRange.trim(),
+      items: items.split('|').map(item => item.trim()).filter(Boolean),
+      highlights: highlights.split('|').map(item => item.trim()).filter(Boolean),
+    }
+  }).filter(item => item.company)
+}
+
+function skillsToText(items: SkillCategory[] = []) {
+  return items.map(item => `${item.category}: ${(item.items || []).join(', ')}`).join('\n')
+}
+
+function textToSkills(value: string): SkillCategory[] {
+  return value.split('\n').map(line => {
+    const [category = '', rest = ''] = line.split(':')
+    return {
+      category: category.trim(),
+      items: rest.split(',').map(item => item.trim()).filter(Boolean),
+    }
+  }).filter(item => item.category)
+}
+
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE_URL}${path}`, init)
   if (!res.ok) throw new Error(await res.text())
@@ -82,6 +145,14 @@ function AdminPage() {
   const [openToWork, setOpenToWork] = useState(true)
   const [currentLocation, setCurrentLocation] = useState('India')
   const [desiredLocations, setDesiredLocations] = useState('')
+  const [profileName, setProfileName] = useState('Raj Sahoo')
+  const [profileLocation, setProfileLocation] = useState('India')
+  const [profileHeadline, setProfileHeadline] = useState('AI/ML Software Developer')
+  const [profileEyebrow, setProfileEyebrow] = useState('AI Systems - Production ML - Applied Research')
+  const [profileAbout, setProfileAbout] = useState('')
+  const [experienceText, setExperienceText] = useState('')
+  const [skillsText, setSkillsText] = useState('')
+  const [settingsStatus, setSettingsStatus] = useState<string | null>(null)
 
   const [adminToken, setAdminToken] = useState(() => localStorage.getItem(ADMIN_TOKEN_KEY) || '')
 
@@ -125,6 +196,13 @@ function AdminPage() {
       const payload = await fetchJson<PortfolioPayload>('/portfolio')
       setPortfolio(payload)
       setOpenToWork(payload.profile.openToWork)
+      setProfileName(payload.profile.name || 'Raj Sahoo')
+      setProfileLocation(payload.profile.location || 'India')
+      setProfileHeadline(payload.profile.headline || 'AI/ML Software Developer')
+      setProfileEyebrow(payload.profile.eyebrow || 'AI Systems - Production ML - Applied Research')
+      setProfileAbout(payload.profile.about || '')
+      setExperienceText(experienceToText(payload.profile.experience || []))
+      setSkillsText(skillsToText(payload.profile.skills || []))
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load data.')
@@ -139,6 +217,13 @@ function AdminPage() {
       setOpenToWork(payload.open_to_work)
       setCurrentLocation(payload.current_location || 'India')
       setDesiredLocations((payload.desired_locations || []).join(', '))
+      setProfileName(payload.name || 'Raj Sahoo')
+      setProfileLocation(payload.location || payload.current_location || 'India')
+      setProfileHeadline(payload.headline || 'AI/ML Software Developer')
+      setProfileEyebrow(payload.eyebrow || 'AI Systems - Production ML - Applied Research')
+      setProfileAbout(payload.about || '')
+      setExperienceText(experienceToText(payload.experience || []))
+      setSkillsText(skillsToText(payload.skills || []))
     } catch { /* keep usable */ }
   }
 
@@ -241,18 +326,38 @@ function AdminPage() {
 
     try {
       setOpenToWorkSaving(true)
+      setSettingsStatus(null)
       const list = des.split(',').map(s => s.trim()).filter(Boolean)
       const result = await fetchJson<AdminSettings>('/admin/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-        body: JSON.stringify({ open_to_work: otw, current_location: loc, desired_locations: list }),
+        body: JSON.stringify({
+          open_to_work: otw,
+          current_location: loc,
+          desired_locations: list,
+          name: profileName,
+          location: profileLocation,
+          headline: profileHeadline,
+          about: profileAbout,
+          eyebrow: profileEyebrow,
+          experience: textToExperience(experienceText),
+          skills: textToSkills(skillsText),
+        }),
       })
       setOpenToWork(result.open_to_work)
       setCurrentLocation(result.current_location || 'India')
       setDesiredLocations((result.desired_locations || []).join(', '))
+      setProfileName(result.name || profileName)
+      setProfileLocation(result.location || profileLocation)
+      setProfileHeadline(result.headline || profileHeadline)
+      setProfileEyebrow(result.eyebrow || profileEyebrow)
+      setProfileAbout(result.about || profileAbout)
+      setExperienceText(experienceToText(result.experience || textToExperience(experienceText)))
+      setSkillsText(skillsToText(result.skills || textToSkills(skillsText)))
       await loadPortfolio()
-    } catch {
-      // revert gracefully
+      setSettingsStatus('Saved portfolio content.')
+    } catch (err) {
+      setSettingsStatus(err instanceof Error ? err.message : 'Could not save portfolio content.')
     } finally {
       setOpenToWorkSaving(false)
     }
@@ -382,7 +487,7 @@ function AdminPage() {
         {/* ── Availability ── */}
         <div className="admin-card">
           <h2 className="admin-card-title">Availability</h2>
-          <p className="admin-card-desc">Controls the open-to-work status shown publicly on the portfolio.</p>
+          <p className="admin-card-desc">Controls the profile, experience, skills, and open-to-work status shown publicly.</p>
           <div className="switch-row" style={{ marginBottom: '1rem' }}>
             <span className="switch-label" style={{ color: openToWork ? 'var(--accent)' : 'var(--muted)' }}>
               {openToWork ? 'Open to work' : 'Not open to work'}
@@ -398,14 +503,48 @@ function AdminPage() {
           </div>
           <div className="form-grid">
             <label className="field-label">
+              Name
+              <input className="field-input" onChange={e => setProfileName(e.target.value)} type="text" value={profileName} />
+            </label>
+            <label className="field-label">
+              Profile Location
+              <input className="field-input" onChange={e => setProfileLocation(e.target.value)} type="text" value={profileLocation} />
+            </label>
+            <label className="field-label">
+              Hero eyebrow
+              <input className="field-input" onChange={e => setProfileEyebrow(e.target.value)} type="text" value={profileEyebrow} />
+            </label>
+            <label className="field-label">
+              Headline
+              <input className="field-input" onChange={e => setProfileHeadline(e.target.value)} type="text" value={profileHeadline} />
+            </label>
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>
+              About
+              <textarea className="field-input" onChange={e => setProfileAbout(e.target.value)} rows={3} value={profileAbout} />
+            </label>
+            <label className="field-label">
               Current Location
-              <input className="field-input" onChange={e => setCurrentLocation(e.target.value)} onBlur={() => void saveSettings()} type="text" value={currentLocation} />
+              <input className="field-input" onChange={e => setCurrentLocation(e.target.value)} type="text" value={currentLocation} />
             </label>
             <label className="field-label">
               Desired Locations (comma-separated)
-              <input className="field-input" onChange={e => setDesiredLocations(e.target.value)} onBlur={() => void saveSettings()} placeholder="e.g. Remote, San Francisco, New York" type="text" value={desiredLocations} />
+              <input className="field-input" onChange={e => setDesiredLocations(e.target.value)} placeholder="e.g. Remote, San Francisco, New York" type="text" value={desiredLocations} />
+            </label>
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>
+              Experience
+              <textarea className="field-input" onChange={e => setExperienceText(e.target.value)} rows={8} value={experienceText} />
+            </label>
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>
+              Skills
+              <textarea className="field-input" onChange={e => setSkillsText(e.target.value)} rows={5} value={skillsText} />
             </label>
           </div>
+          <div className="btn-row" style={{ marginTop: '1rem' }}>
+            <button className="btn-admin" disabled={openToWorkSaving} onClick={() => void saveSettings()} type="button">
+              Save Portfolio Content
+            </button>
+          </div>
+          {settingsStatus && <p className="status-text" style={{ marginTop: '0.75rem' }}>{settingsStatus}</p>}
         </div>
 
         {/* ── Projects ── */}

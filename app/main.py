@@ -46,6 +46,13 @@ class UpdateSettingsRequest(BaseModel):
     open_to_work: bool
     current_location: str
     desired_locations: list[str]
+    name: str | None = None
+    location: str | None = None
+    headline: str | None = None
+    about: str | None = None
+    eyebrow: str | None = None
+    experience: list[dict] = []
+    skills: list[dict] = []
 
 
 class UpsertProjectRequest(BaseModel):
@@ -116,6 +123,9 @@ def get_admin_settings() -> dict:
         "open_to_work": metadata_store.get_open_to_work(),
         "current_location": metadata_store.get_current_location(),
         "desired_locations": metadata_store.get_desired_locations(),
+        **metadata_store.get_profile_overrides(),
+        "experience": metadata_store.get_portfolio_experience(),
+        "skills": metadata_store.get_portfolio_skills(),
     }
 
 
@@ -125,10 +135,24 @@ def update_admin_settings(request: UpdateSettingsRequest, x_admin_token: str | N
     metadata_store.set_open_to_work(request.open_to_work)
     metadata_store.set_current_location(request.current_location)
     metadata_store.set_desired_locations(request.desired_locations)
+    metadata_store.set_profile_overrides(
+        {
+            "name": request.name,
+            "location": request.location,
+            "headline": request.headline,
+            "about": request.about,
+            "eyebrow": request.eyebrow,
+        }
+    )
+    metadata_store.set_portfolio_experience(request.experience)
+    metadata_store.set_portfolio_skills(request.skills)
     return {
         "open_to_work": metadata_store.get_open_to_work(),
         "current_location": metadata_store.get_current_location(),
         "desired_locations": metadata_store.get_desired_locations(),
+        **metadata_store.get_profile_overrides(),
+        "experience": metadata_store.get_portfolio_experience(),
+        "skills": metadata_store.get_portfolio_skills(),
     }
 
 

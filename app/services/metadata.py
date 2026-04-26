@@ -102,6 +102,9 @@ class SqliteMetadataStore:
             conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('open_to_work', 'true')")
             conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('current_location', 'India')")
             conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('desired_locations', '[]')")
+            conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('profile_overrides', '{}')")
+            conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('portfolio_experience', '[]')")
+            conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('portfolio_skills', '[]')")
 
     # ── Portfolio projects ──────────────────────────────────────────────────
 
@@ -401,6 +404,41 @@ class SqliteMetadataStore:
     def set_desired_locations(self, locations: list[str]) -> None:
         self.set_setting("desired_locations", json.dumps([loc.strip() for loc in locations if loc.strip()]))
 
+    def get_profile_overrides(self) -> dict[str, Any]:
+        raw = self.get_setting("profile_overrides", "{}") or "{}"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            return {}
+
+    def set_profile_overrides(self, value: dict[str, Any]) -> None:
+        allowed = {"name", "location", "headline", "about", "eyebrow"}
+        payload = {key: str(value.get(key) or "").strip() for key in allowed if str(value.get(key) or "").strip()}
+        self.set_setting("profile_overrides", json.dumps(payload))
+
+    def get_portfolio_experience(self) -> list[dict[str, Any]]:
+        raw = self.get_setting("portfolio_experience", "[]") or "[]"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
+    def set_portfolio_experience(self, value: list[dict[str, Any]]) -> None:
+        self.set_setting("portfolio_experience", json.dumps(value))
+
+    def get_portfolio_skills(self) -> list[dict[str, Any]]:
+        raw = self.get_setting("portfolio_skills", "[]") or "[]"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
+    def set_portfolio_skills(self, value: list[dict[str, Any]]) -> None:
+        self.set_setting("portfolio_skills", json.dumps(value))
+
 
 class MongoMetadataStore:
     def __init__(self, mongo_uri: str, db_name: str) -> None:
@@ -420,6 +458,9 @@ class MongoMetadataStore:
         self._settings.update_one({"_id": "open_to_work"}, {"$setOnInsert": {"value": "true"}}, upsert=True)
         self._settings.update_one({"_id": "current_location"}, {"$setOnInsert": {"value": "India"}}, upsert=True)
         self._settings.update_one({"_id": "desired_locations"}, {"$setOnInsert": {"value": "[]"}}, upsert=True)
+        self._settings.update_one({"_id": "profile_overrides"}, {"$setOnInsert": {"value": "{}"}}, upsert=True)
+        self._settings.update_one({"_id": "portfolio_experience"}, {"$setOnInsert": {"value": "[]"}}, upsert=True)
+        self._settings.update_one({"_id": "portfolio_skills"}, {"$setOnInsert": {"value": "[]"}}, upsert=True)
         self._migrate_from_sqlite_if_present()
 
     def _migrate_from_sqlite_if_present(self) -> None:
@@ -637,6 +678,41 @@ class MongoMetadataStore:
 
     def set_desired_locations(self, locations: list[str]) -> None:
         self.set_setting("desired_locations", json.dumps([loc.strip() for loc in locations if loc.strip()]))
+
+    def get_profile_overrides(self) -> dict[str, Any]:
+        raw = self.get_setting("profile_overrides", "{}") or "{}"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            return {}
+
+    def set_profile_overrides(self, value: dict[str, Any]) -> None:
+        allowed = {"name", "location", "headline", "about", "eyebrow"}
+        payload = {key: str(value.get(key) or "").strip() for key in allowed if str(value.get(key) or "").strip()}
+        self.set_setting("profile_overrides", json.dumps(payload))
+
+    def get_portfolio_experience(self) -> list[dict[str, Any]]:
+        raw = self.get_setting("portfolio_experience", "[]") or "[]"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
+    def set_portfolio_experience(self, value: list[dict[str, Any]]) -> None:
+        self.set_setting("portfolio_experience", json.dumps(value))
+
+    def get_portfolio_skills(self) -> list[dict[str, Any]]:
+        raw = self.get_setting("portfolio_skills", "[]") or "[]"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, list) else []
+        except Exception:
+            return []
+
+    def set_portfolio_skills(self, value: list[dict[str, Any]]) -> None:
+        self.set_setting("portfolio_skills", json.dumps(value))
 
     # ── Portfolio projects ──────────────────────────────────────────────────
 

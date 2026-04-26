@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 
 type ExperienceItem = {
@@ -32,6 +32,7 @@ type PortfolioPayload = {
     location: string
     headline: string
     about: string
+    eyebrow?: string
     openToWork: boolean
     currentLocation?: string
     desiredLocations?: string[]
@@ -134,7 +135,6 @@ function PortfolioPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, chatting])
 
-  const featuredProjects  = useMemo(() => (portfolio?.projects ?? []).filter(p => p.isVisible !== false), [portfolio])
   const experience        = portfolio?.profile.experience ?? []
   const skills            = portfolio?.profile.skills ?? []
   const resumeProjects    = portfolio?.profile.resumeProjects ?? []
@@ -207,7 +207,6 @@ function PortfolioPage() {
           </span>
 
           <div className="nav-links">
-            <button className="nav-link" onClick={() => scrollTo('projects')} type="button">Projects</button>
             <button className="nav-link" onClick={() => scrollTo('experience')} type="button">Experience</button>
             <button className="nav-link" onClick={() => scrollTo('skills')} type="button">Skills</button>
           </div>
@@ -239,7 +238,7 @@ function PortfolioPage() {
           <div className="hero-left">
             <p className="eyebrow">
               <span className="eyebrow-line" />
-              AI Systems · Production ML · Applied Research
+              {portfolio?.profile.eyebrow ?? 'AI Systems - Production ML - Applied Research'}
             </p>
             <h1 className="hero-name">
               {portfolio?.profile.name ?? 'Raj Sahoo'}
@@ -254,8 +253,8 @@ function PortfolioPage() {
               <button className="btn-primary" onClick={() => setWidgetOpen(true)} type="button">
                 Ask the AI assistant
               </button>
-              <button className="btn-ghost" onClick={() => scrollTo('projects')} type="button">
-                View projects
+              <button className="btn-ghost" onClick={() => scrollTo('experience')} type="button">
+                View experience
               </button>
             </div>
           </div>
@@ -291,44 +290,11 @@ function PortfolioPage() {
                 )}
               </div>
             )}
-            <div className="hero-stat-card">
-              <p className="stat-label">Portfolio</p>
-              <p className="stat-value">{featuredProjects.length} projects indexed</p>
-            </div>
           </div>
         </section>
 
         {error && <div className="error-banner" role="alert">{error}</div>}
         {loading && <p className="status-text">Loading portfolio data…</p>}
-
-        {/* ── Featured Projects ── */}
-        <section className="section" id="projects" aria-labelledby="projects-heading">
-          <div className="section-header">
-            <h2 className="section-title" id="projects-heading">Featured Projects</h2>
-            <span className="section-sub">{featuredProjects.length} projects</span>
-          </div>
-          <div className="project-grid">
-            {featuredProjects.map((project) => (
-              <button
-                className="project-card"
-                key={project.id}
-                onClick={() => void openProject(project)}
-                type="button"
-              >
-                <span className="project-card-tag">{fileLabel(project.sourcePath)}</span>
-                <h3>{project.title}</h3>
-                <p>{project.summary}</p>
-                {project.techStack.length > 0 && (
-                  <div className="tech-pills">
-                    {project.techStack.slice(0, 6).map(tech => (
-                      <span className="tech-pill" key={tech}>{tech}</span>
-                    ))}
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-        </section>
 
         {/* ── Experience ── */}
         <section className="section" id="experience" aria-labelledby="experience-heading">

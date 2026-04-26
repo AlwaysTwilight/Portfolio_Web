@@ -254,13 +254,43 @@ class PortfolioService:
                 project_names.append(title)
         return project_names[:8]
 
+    def _clean_experience_items(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        cleaned: list[dict[str, Any]] = []
+        for item in items:
+            company = self._clean_line(str(item.get("company") or ""))
+            if not company:
+                continue
+            work_items = [self._clean_line(str(value)) for value in item.get("items", []) if self._clean_line(str(value))]
+            highlights = [self._clean_line(str(value)) for value in item.get("highlights", []) if self._clean_line(str(value))]
+            cleaned.append(
+                {
+                    "company": company,
+                    "dateRange": self._clean_line(str(item.get("dateRange") or "")),
+                    "items": work_items,
+                    "highlights": highlights,
+                }
+            )
+        return cleaned
+
+    def _clean_skill_categories(self, items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        cleaned: list[dict[str, Any]] = []
+        for item in items:
+            category = self._clean_line(str(item.get("category") or ""))
+            if not category:
+                continue
+            skills = [self._clean_line(str(value)) for value in item.get("items", []) if self._clean_line(str(value))]
+            cleaned.append({"category": category, "items": skills})
+        return cleaned
+
     def get_portfolio_payload(self) -> dict[str, Any]:
         chunks = self._get_resume_chunks()
         header = self._extract_header(chunks)
-        experience = self._extract_experience(chunks)
-        skills = self._extract_skills(chunks)
+        profile_overrides = metadata_store.get_profile_overrides()
+        header = {**header, **profile_overrides}
+        experience = self._clean_experience_items(metadata_store.get_portfolio_experience()) or self._extract_experience(chunks)
+        skills = self._clean_skill_categories(metadata_store.get_portfolio_skills()) or self._extract_skills(chunks)
         resume_projects = self._extract_resume_projects(chunks)
-        about = (
+        about = profile_overrides.get("about") or (
             "I build production AI systems, real-time automation, retrieval pipelines, and applied ML products. "
             "My recent work spans conversational AI, intelligent dashboards, sentiment analysis, enterprise integrations, and agentic workflows."
         )
@@ -293,6 +323,7 @@ class PortfolioService:
             "profile": {
                 **header,
                 "about": about,
+                "eyebrow": profile_overrides.get("eyebrow") or "AI Systems - Production ML - Applied Research",
                 "openToWork": metadata_store.get_open_to_work(),
                 "currentLocation": metadata_store.get_current_location(),
                 "desiredLocations": metadata_store.get_desired_locations(),
