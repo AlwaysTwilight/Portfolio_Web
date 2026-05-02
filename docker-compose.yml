@@ -2,14 +2,14 @@ services:
   mongo:
     image: mongo:7
     container_name: portfolio-mongo
-    ports:
-      - "27017:27017"
+    restart: unless-stopped
     volumes:
       - mongo_data:/data/db
 
   chroma:
     image: chromadb/chroma:1.0.7
     container_name: portfolio-chroma
+    restart: unless-stopped
     environment:
       IS_PERSISTENT: "TRUE"
       PERSIST_DIRECTORY: /data
@@ -22,6 +22,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: portfolio-api
+    restart: unless-stopped
     env_file:
       - .env
     environment:
@@ -33,52 +34,6 @@ services:
       - "8000:8000"
     volumes:
       - ./data:/app/data
-      - ./app:/app/app
-      - ./ui:/app/ui
-
-  ui:
-    image: portfolio-api:latest
-    container_name: portfolio-ui
-    env_file:
-      - .env
-    environment:
-      API_BASE_URL: http://api:8000
-      PORT: 8000
-    depends_on:
-      - api
-    command: ["streamlit", "run", "ui/streamlit_app.py", "--server.address", "0.0.0.0", "--server.port", "8501"]
-    ports:
-      - "8501:8501"
-    volumes:
-      - ./data:/app/data
-
-  portfolio:
-    build:
-      context: ./portfolio-web
-      dockerfile: Dockerfile
-    container_name: portfolio-web
-    environment:
-      VITE_API_BASE_URL: http://localhost:8000
-      VITE_APP_MODE: portfolio
-    depends_on:
-      - api
-    ports:
-      - "3000:3000"
-
-  admin:
-    build:
-      context: ./portfolio-web
-      dockerfile: Dockerfile
-    container_name: portfolio-admin
-    environment:
-      VITE_API_BASE_URL: http://localhost:8000
-      VITE_APP_MODE: admin
-      VITE_PORTFOLIO_ORIGIN: http://localhost:3000
-    depends_on:
-      - api
-    command: ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "3001"]
-    ports:
-      - "3001:3001"
 
 volumes:
   mongo_data:

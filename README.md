@@ -12,6 +12,16 @@ This project is a local-first document chatbot backend built with FastAPI, Llama
 - Retrieve only the latest active version by default.
 - Answer questions with Gemini using grounded context.
 
+## EC2 backend setup
+
+```bash
+cp .env.example .env
+nano .env
+docker compose up -d --build
+```
+
+This starts only the production backend services: FastAPI, MongoDB, and ChromaDB.
+
 ## Setup
 
 1. Copy `.env.example` to `.env`.
