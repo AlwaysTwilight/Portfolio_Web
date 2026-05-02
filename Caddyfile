@@ -1,0 +1,43 @@
+{
+	# Set via env: CADDY_EMAIL=...
+	email {$CADDY_EMAIL}
+}
+
+# Portfolio (root domain)
+{$PORTFOLIO_HOST} {
+	encode gzip
+
+	@api path /api/* /docs* /openapi.json /health /upload /ingest /chat /documents* /portfolio /admin/*
+	handle @api {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv/portfolio
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Admin subdomain
+{$ADMIN_HOST} {
+	encode gzip
+
+	@api path /api/* /docs* /openapi.json /health /upload /ingest /chat /documents* /portfolio /admin/*
+	handle @api {
+		reverse_proxy api:8000
+	}
+
+	handle {
+		root * /srv/admin
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# API subdomain (optional, if you want api.yourdomain.com)
+{$API_HOST} {
+	encode gzip
+	reverse_proxy api:8000
+}
+

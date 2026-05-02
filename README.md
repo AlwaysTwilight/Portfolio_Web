@@ -1,13 +1,13 @@
 # Local RAG Backend
 
-This project is a local-first document chatbot backend built with FastAPI, LlamaParse, Gemini, SQLite metadata, and simple BM25-style local retrieval.
+This project is a local-first document chatbot backend built with FastAPI, LlamaParse, Gemini, SQLite metadata, and ChromaDB vector retrieval.
 
 ## What it does
 
 - Upload `PDF`, `DOCX`, `TXT`, `MD`, and `Markdown` files.
 - Create a new version for each upload under a stable `logical_document_key`.
 - Parse content with LlamaParse.
-- Chunk and index content into JSON files under `data/processed`.
+- Chunk, embed, and index content into ChromaDB.
 - Keep old versions for history.
 - Retrieve only the latest active version by default.
 - Answer questions with Gemini using grounded context.

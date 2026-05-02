@@ -6,8 +6,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
+from app.config import settings
 from app.services.metadata import metadata_store
-from app.services.simple_retriever import simple_retriever
+from app.services.vector_store import vector_store
 
 
 DATE_RANGE_PATTERN = re.compile(
@@ -172,12 +173,14 @@ class PortfolioService:
         resume_doc = next((doc for doc in documents if doc["logical_document_key"].lower() == "resume"), None)
         if not resume_doc or not resume_doc.get("active_version_id"):
             return []
-        chunks = simple_retriever.read_chunks(
+        result = vector_store.get_active_document_chunks(
+            settings.chroma_collection_name,
             resume_doc["logical_document_key"],
             resume_doc["active_version_id"],
         )
-        for chunk in chunks:
-            chunk["document"] = self._normalize_text(str(chunk.get("document") or ""))
+        chunks = []
+        for chunk_id, document, metadata in zip(result.get("ids", []), result.get("documents", []), result.get("metadatas", [])):
+            chunks.append({"id": chunk_id, "document": self._normalize_text(document), "metadata": metadata})
         return sorted(chunks, key=lambda item: int(item["metadata"].get("chunk_index", 0)))
 
     def _extract_header(self, chunks: list[dict[str, Any]]) -> dict[str, str]:

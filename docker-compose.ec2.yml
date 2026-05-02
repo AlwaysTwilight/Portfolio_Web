@@ -1,0 +1,64 @@
+services:
+  api:
+    image: portfolio-api:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: portfolio-api
+    env_file:
+      - .env
+    environment:
+      PORT: 8000
+    depends_on:
+      - mongo
+      - chroma
+    expose:
+      - "8000"
+    volumes:
+      - ./data:/app/data
+
+  mongo:
+    image: mongo:7
+    container_name: portfolio-mongo
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+
+  chroma:
+    image: chromadb/chroma:1.0.7
+    container_name: portfolio-chroma
+    restart: unless-stopped
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /data
+    volumes:
+      - chroma_data:/data
+
+  # Reverse proxy + HTTPS (automatic Let's Encrypt)
+  caddy:
+    image: caddy:2
+    container_name: portfolio-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - CADDY_EMAIL=${CADDY_EMAIL}
+      - PORTFOLIO_HOST=${PORTFOLIO_HOST}
+      - ADMIN_HOST=${ADMIN_HOST}
+      - API_HOST=${API_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Static sites (build these once and keep them on disk)
+      - ./portfolio-web/dist-portfolio:/srv/portfolio:ro
+      - ./portfolio-web/dist-admin:/srv/admin:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  mongo_data:
+  chroma_data:
+  caddy_data:
+  caddy_config:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -13,8 +13,8 @@ from app.services.ingestion import ingestion_service
 from app.services.metadata import metadata_store
 from app.services.portfolio import portfolio_service
 from app.services.project_cards import extract_project_card
-from app.services.simple_retriever import simple_retriever
 from app.services.storage import ensure_storage_dirs, save_upload
+from app.services.vector_store import vector_store
 
 
 app = FastAPI(title="Local RAG Backend", version="0.1.0")
@@ -79,15 +79,23 @@ def _backfill_active_versions() -> None:
     documents = metadata_store.list_documents()
     if not any(item.get('active_version_id') for item in documents):
         return
+    needs_backfill = False
+    try:
+        primary_count = vector_store._get_collection(settings.chroma_collection_name).count()
+        needs_backfill = primary_count == 0 and any(item.get('active_version_id') for item in documents)
+    except Exception:
+        needs_backfill = any(item.get('active_version_id') for item in documents)
+
+    if not needs_backfill:
+        return
+
     for document in documents:
         active_version_id = document.get('active_version_id')
         if not active_version_id:
             continue
         versions = document.get('versions', [])
         active_version = next((version for version in versions if version.get('version_id') == active_version_id), None)
-        if not active_version or active_version.get('status') not in {'indexed', 'indexing'}:
-            continue
-        if simple_retriever.chunks_path(document['logical_document_key'], active_version_id).exists():
+        if not active_version or active_version.get('status') not in {'indexed', 'embedding', 'indexing'}:
             continue
         try:
             ingestion_service.ingest(active_version_id)
@@ -165,12 +173,19 @@ def list_admin_projects(x_admin_token: str | None = Header(default=None)) -> dic
 @app.get("/admin/rag/documents")
 def list_rag_documents(x_admin_token: str | None = Header(default=None)) -> dict:
     _require_admin(x_admin_token)
-    return {"documents": simple_retriever.active_documents()}
+    try:
+        return {"documents": vector_store.list_active_documents(settings.chroma_collection_name)}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @app.get("/admin/chroma/documents")
 def list_chroma_documents(x_admin_token: str | None = Header(default=None)) -> dict:
-    return list_rag_documents(x_admin_token)
+    _require_admin(x_admin_token)
+    try:
+        return {"documents": vector_store.list_active_documents(settings.chroma_collection_name)}
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)) from exc
 
 
 @app.post("/admin/projects")

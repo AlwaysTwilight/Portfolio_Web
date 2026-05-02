@@ -1,4 +1,6 @@
-# Deployment (Simple RAG: Render + Vercel)
+# Deployment (Historical Render + Vercel Notes)
+
+> Note: This file documents the older simple-RAG deployment path. The current restored setup uses ChromaDB and Gemini embeddings again. For the EC2 plan, use `EC2_FULL_PLAN.md`.
 
 This version does **not** use Chroma, embeddings, FAISS, Pinecone, or any vector database.
 

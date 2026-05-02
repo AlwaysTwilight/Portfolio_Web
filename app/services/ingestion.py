@@ -5,9 +5,10 @@ from pathlib import Path
 
 from app.config import settings
 from app.services.chunker import chunk_text
+from app.services.embeddings import embedding_service
 from app.services.metadata import metadata_store
 from app.services.parser import document_parser
-from app.services.simple_retriever import simple_retriever
+from app.services.vector_store import vector_store
 
 
 class IngestionService:
@@ -30,8 +31,9 @@ class IngestionService:
         if not chunks:
             raise ValueError(f'No chunks produced for {file_path.name}')
 
+        chunk_texts = [chunk.text for chunk in chunks]
         ids = [f"{version['version_id']}::{index}" for index, _chunk in enumerate(chunks)]
-        indexed_chunks: list[dict[str, object]] = []
+        metadatas: list[dict[str, object]] = []
         for index, chunk in enumerate(chunks):
             metadata = {
                 'logical_document_key': version['logical_document_key'],
@@ -45,16 +47,19 @@ class IngestionService:
                 'source_label': version['source_label'] or '',
             }
             metadata.update(chunk.metadata())
-            indexed_chunks.append(
-                {
-                    'id': ids[index],
-                    'document': chunk.text,
-                    'metadata': metadata,
-                }
-            )
+            metadatas.append(metadata)
 
+        metadata_store.update_status(version_id, 'embedding')
+        embeddings = embedding_service.embed_documents(chunk_texts)
         metadata_store.update_status(version_id, 'indexing')
-        chunks_path = simple_retriever.write_chunks(version['logical_document_key'], version_id, indexed_chunks)
+        vector_store.deactivate_logical_document(settings.chroma_collection_name, version['logical_document_key'])
+        vector_store.upsert_chunks(
+            settings.chroma_collection_name,
+            ids=ids,
+            documents=chunk_texts,
+            embeddings=embeddings,
+            metadatas=metadatas,
+        )
         metadata_store.activate_version(version['logical_document_key'], version_id)
 
         manifest_path = processed_dir / 'manifest.json'
@@ -63,11 +68,11 @@ class IngestionService:
                 {
                     'chunk_count': len(chunks),
                     'version_id': version_id,
-                    'retrieval_index': {
-                        'provider': 'simple_bm25',
+                    'embedding_index': {
+                        'provider': 'gemini',
+                        'collection': settings.chroma_collection_name,
                         'indexed': True,
                         'chunk_count': len(chunks),
-                        'path': str(chunks_path),
                     },
                     'chunks': [
                         {
