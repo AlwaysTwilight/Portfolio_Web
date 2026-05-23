@@ -2,19 +2,19 @@ from __future__ import annotations
 
 from typing import Any
 
-import chromadb
-
 from app.config import settings
 
 
 class VectorStore:
     def __init__(self) -> None:
-        self._client: chromadb.HttpClient | None = None
+        self._client: Any | None = None
         self._collections: dict[str, Any] = {}
 
-    def _ensure_client(self) -> chromadb.HttpClient:
+    def _ensure_client(self) -> Any:
         if self._client is None:
             try:
+                import chromadb
+
                 self._client = chromadb.HttpClient(host=settings.chroma_host, port=settings.chroma_port)
                 self._client.heartbeat()
             except Exception as exc:  # noqa: BLE001
@@ -43,6 +43,9 @@ class VectorStore:
                     raise RuntimeError(f"Could not open Chroma collection '{collection_name}'") from create_exc
             self._collections[collection_name] = collection
         return self._collections[collection_name]
+
+    def count(self, collection_name: str) -> int:
+        return self._get_collection(collection_name).count()
 
     def upsert_chunks(
         self,
@@ -117,4 +120,7 @@ class VectorStore:
         return sorted(grouped.values(), key=lambda row: (row["logical_document_key"], row["version_id"]))
 
 
-vector_store = VectorStore()
+if settings.database_url:
+    from app.services.pgvector_store import pgvector_store as vector_store
+else:
+    vector_store = VectorStore()

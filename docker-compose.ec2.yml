@@ -1,21 +1,4 @@
 services:
-  mongo:
-    image: mongo:7
-    container_name: portfolio-mongo
-    restart: unless-stopped
-    volumes:
-      - mongo_data:/data/db
-
-  chroma:
-    image: chromadb/chroma:1.0.7
-    container_name: portfolio-chroma
-    restart: unless-stopped
-    environment:
-      IS_PERSISTENT: "TRUE"
-      PERSIST_DIRECTORY: /data
-    volumes:
-      - chroma_data:/data
-
   api:
     image: portfolio-api:latest
     build:
@@ -27,14 +10,7 @@ services:
       - .env
     environment:
       PORT: 8000
-    depends_on:
-      - mongo
-      - chroma
     ports:
       - "8000:8000"
     volumes:
       - ./data:/app/data
-
-volumes:
-  mongo_data:
-  chroma_data:

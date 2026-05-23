@@ -1,9 +1,12 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type ExperienceItem = {
   company: string
+  role?: string
   dateRange?: string
+  summary?: string
   items: string[]
   highlights: string[]
 }
@@ -20,9 +23,6 @@ type ProjectCard = {
   techStack: string[]
   sourcePath: string
   isVisible?: boolean
-}
-
-type ProjectDetails = ProjectCard & {
   whatItDoes?: string[]
 }
 
@@ -43,469 +43,627 @@ type PortfolioPayload = {
   projects: ProjectCard[]
 }
 
-type ChatResponse = { answer: string }
-type ChatMessage  = { role: 'user' | 'assistant'; content: string }
+type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+// ─── Config ───────────────────────────────────────────────────────────────────
 
-function fileLabel(path: string) {
-  const parts = path.split(/[\\/]/)
-  return parts[parts.length - 1] || path
-}
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, init)
+async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${API_BASE}${path}`, init)
   if (!res.ok) throw new Error(await res.text())
   return res.json() as Promise<T>
 }
 
-/* ── Sun icon ─────────────────────────────────────── */
-function SunIcon() {
+// ─── Typewriter hook ──────────────────────────────────────────────────────────
+
+function useTypewriter(text: string, speed = 42) {
+  const [displayed, setDisplayed] = useState('')
+  const [done, setDone] = useState(false)
+  useEffect(() => {
+    setDisplayed('')
+    setDone(false)
+    if (!text) return
+    let i = 0
+    const id = setInterval(() => {
+      i++
+      setDisplayed(text.slice(0, i))
+      if (i >= text.length) {
+        clearInterval(id)
+        setDone(true)
+      }
+    }, speed)
+    return () => clearInterval(id)
+  }, [text, speed])
+  return { displayed, done }
+}
+
+// ─── Scroll-reveal hook ───────────────────────────────────────────────────────
+
+function useReveal() {
+  const ref = useRef<HTMLElement | null>(null)
+  const [visible, setVisible] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) { setVisible(true); obs.disconnect() } },
+      { threshold: 0.12 }
+    )
+    obs.observe(el)
+    return () => obs.disconnect()
+  }, [])
+  return { ref, visible }
+}
+
+// ─── Tilt card ────────────────────────────────────────────────────────────────
+
+function TiltCard({ children, className, onClick }: {
+  children: React.ReactNode
+  className?: string
+  onClick?: () => void
+}) {
+  const el = useRef<HTMLDivElement>(null)
+
+  function handleMove(e: React.MouseEvent<HTMLDivElement>) {
+    const card = el.current
+    if (!card) return
+    const { left, top, width, height } = card.getBoundingClientRect()
+    const x = (e.clientX - left) / width - 0.5
+    const y = (e.clientY - top) / height - 0.5
+    card.style.transform = `perspective(600px) rotateY(${x * 12}deg) rotateX(${-y * 10}deg) scale(1.02)`
+    card.style.setProperty('--shine-x', `${(x + 0.5) * 100}%`)
+    card.style.setProperty('--shine-y', `${(y + 0.5) * 100}%`)
+  }
+
+  function handleLeave() {
+    if (el.current) el.current.style.transform = ''
+  }
+
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="5"/>
-      <line x1="12" y1="1" x2="12" y2="3"/>
-      <line x1="12" y1="21" x2="12" y2="23"/>
-      <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-      <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-      <line x1="1" y1="12" x2="3" y2="12"/>
-      <line x1="21" y1="12" x2="23" y2="12"/>
-      <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-      <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-    </svg>
+    <div
+      ref={el}
+      className={`tilt-card ${className ?? ''}`}
+      onMouseMove={handleMove}
+      onMouseLeave={handleLeave}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') onClick() } : undefined}
+    >
+      {children}
+    </div>
   )
 }
 
-/* ── Moon icon ────────────────────────────────────── */
-function MoonIcon() {
+// ─── Section wrapper ──────────────────────────────────────────────────────────
+
+function RevealSection({ id, children, className = '' }: {
+  id?: string
+  children: React.ReactNode
+  className?: string
+}) {
+  const { ref, visible } = useReveal()
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-    </svg>
+    <section
+      id={id}
+      ref={ref as React.Ref<HTMLElement>}
+      className={`reveal-section ${visible ? 'is-visible' : ''} ${className}`}
+    >
+      {children}
+    </section>
   )
 }
 
-function PortfolioPage() {
-  const [portfolio, setPortfolio]             = useState<PortfolioPayload | null>(null)
-  const [loading, setLoading]                 = useState(true)
-  const [error, setError]                     = useState<string | null>(null)
-  const [theme, setTheme]                     = useState<'light'|'dark'>(() =>
-    (localStorage.getItem('theme') as 'light'|'dark') ||
-    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-  )
-  const [widgetOpen, setWidgetOpen]           = useState(false)
-  const [chatInput, setChatInput]             = useState('')
-  const [chatting, setChatting]               = useState(false)
-  const [messages, setMessages]               = useState<ChatMessage[]>([
-    { role: 'assistant', content: "Hi! I'm Raj's portfolio assistant. Ask me about his projects, ML systems, or AI engineering work." },
+// ─── Main component ───────────────────────────────────────────────────────────
+
+export default function PortfolioPage() {
+  const [portfolio, setPortfolio] = useState<PortfolioPayload | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [activeProject, setActiveProject] = useState<ProjectCard | null>(null)
+  const [chatOpen, setChatOpen] = useState(false)
+  const [chatInput, setChatInput] = useState('')
+  const [chatting, setChatting] = useState(false)
+  const [messages, setMessages] = useState<ChatMessage[]>([
+    { role: 'assistant', content: "Hi! Ask me anything about Raj's projects, experience, or skills — I'm grounded in real documents." }
   ])
-  const [activeProject, setActiveProject]     = useState<ProjectCard | null>(null)
-  const [projectModalOpen, setProjectModalOpen] = useState(false)
-  const [projectDetails, setProjectDetails]   = useState<ProjectDetails | null>(null)
-  const [projectDetailsLoading, setProjectDetailsLoading] = useState(false)
-  const [projectDetailsError, setProjectDetailsError]     = useState<string | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const [theme, setTheme] = useState<'dark' | 'light'>(() =>
+    (localStorage.getItem('theme') as 'dark' | 'light') ?? 'dark'
+  )
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const chatInputRef = useRef<HTMLInputElement>(null)
 
-  /* Apply theme to document */
+  const name = portfolio?.profile.name ?? 'Raj Sahoo'
+  const headline = portfolio?.profile.headline ?? 'AI/ML Software Developer'
+  const { displayed: typedName } = useTypewriter(name, 55)
+  const { displayed: typedHead, done: headDone } = useTypewriter(
+    typedName.length === name.length ? headline : '',
+    38
+  )
+
+  // ── Theme ──
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
     localStorage.setItem('theme', theme)
   }, [theme])
 
-  function toggleTheme() {
-    setTheme(t => t === 'light' ? 'dark' : 'light')
-  }
-
+  // ── Load portfolio ──
   async function loadPortfolio() {
     try {
-      setLoading(true)
-      const payload = await fetchJson<PortfolioPayload>('/portfolio')
-      setPortfolio(payload)
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load portfolio data.')
-    } finally {
-      setLoading(false)
-    }
+      const d = await apiFetch<PortfolioPayload>('/portfolio')
+      setPortfolio(d)
+    } catch { /* silent */ }
+    finally { setLoading(false) }
   }
 
   useEffect(() => { void loadPortfolio() }, [])
 
+  // ── BroadcastChannel + 30s poll ──
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, chatting])
+    const bc = new BroadcastChannel('portfolio-updates')
+    bc.onmessage = (e: MessageEvent) => { if (e.data?.type === 'data-updated') void loadPortfolio() }
+    const t = setInterval(() => void loadPortfolio(), 30_000)
+    return () => { bc.close(); clearInterval(t) }
+  }, [])
 
-  const experience        = portfolio?.profile.experience ?? []
-  const skills            = portfolio?.profile.skills ?? []
-  const resumeProjects    = portfolio?.profile.resumeProjects ?? []
-  const activeExperience  = experience[0]
-  const openToWork        = portfolio?.profile.openToWork ?? true
+  // ── Auto-scroll chat ──
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, chatting])
 
   const scrollTo = useCallback((id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
-  async function openProject(project: ProjectCard) {
-    setActiveProject(project)
-    setProjectModalOpen(true)
-    setProjectDetails(null)
-    setProjectDetailsError(null)
-    setProjectDetailsLoading(true)
-    try {
-      const payload = await fetchJson<{ project: ProjectDetails }>(`/projects/${encodeURIComponent(project.id)}`)
-      setProjectDetails(payload.project)
-    } catch (err) {
-      setProjectDetails({ ...project, whatItDoes: [] })
-      setProjectDetailsError(err instanceof Error ? err.message : 'Could not load details.')
-    } finally {
-      setProjectDetailsLoading(false)
-    }
-    if (widgetOpen) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: `I can see you're looking at "${project.title}". Feel free to ask me anything about it.`,
-      }])
-    }
-  }
-
-  function closeProject() {
-    setProjectModalOpen(false)
-    setProjectDetails(null)
-    setProjectDetailsError(null)
-  }
-
-  async function sendMessage() {
-    const prompt = chatInput.trim()
-    if (!prompt || chatting) return
-    const nextMessages: ChatMessage[] = [...messages, { role: 'user', content: prompt }]
-    setMessages(nextMessages)
-    setChatInput('')
-    setChatting(true)
+  // ── Chat ──
+  async function send() {
+    const msg = chatInput.trim()
+    if (!msg || chatting) return
+    const next: ChatMessage[] = [...messages, { role: 'user', content: msg }]
+    setMessages(next); setChatInput(''); setChatting(true)
     try {
       const history = messages.slice(1).map(m => ({ role: m.role, content: m.content }))
-      const result = await fetchJson<ChatResponse>('/chat', {
+      const r = await apiFetch<{ answer: string }>('/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: prompt, include_debug: false, history, active_project_title: activeProject?.title || null }),
+        body: JSON.stringify({
+          message: msg, include_debug: false, history,
+          active_project_title: activeProject?.title ?? null
+        })
       })
-      setMessages([...nextMessages, { role: 'assistant', content: result.answer }])
+      setMessages([...next, { role: 'assistant', content: r.answer }])
     } catch (err) {
-      setMessages([...nextMessages, { role: 'assistant', content: err instanceof Error ? err.message : 'Chat request failed.' }])
-    } finally {
-      setChatting(false)
-    }
+      setMessages([...next, { role: 'assistant', content: 'Connection error — try again.' }])
+    } finally { setChatting(false) }
+  }
+
+  const profile = portfolio?.profile
+  const projects = (portfolio?.projects ?? []).filter(p => p.isVisible !== false)
+  const skills = profile?.skills ?? []
+  const experience = profile?.experience ?? []
+  const openToWork = profile?.openToWork ?? false
+  const desiredLoc = profile?.desiredLocations ?? []
+
+  // ── Category icons ──
+  const catIcon: Record<string, string> = {
+    'Languages': '{ }',
+    'AI / ML': '🤖',
+    'Frameworks': '⚡',
+    'Databases': '🗄️',
+    'DevOps / Tools': '🔧',
   }
 
   return (
-    <div className="page-shell">
+    <div className="app" data-theme={theme}>
 
-      {/* ── Top Navigation ── */}
-      <nav className="topnav" role="navigation">
-        <div className="topnav-inner">
-          <span className="nav-logo">
-            {portfolio?.profile.name ?? 'Raj Sahoo'}<span>.</span>
-          </span>
+      {/* ── Ambient background ── */}
+      <div className="ambient" aria-hidden>
+        <div className="amb-blob amb-blob--1" />
+        <div className="amb-blob amb-blob--2" />
+        <div className="amb-blob amb-blob--3" />
+        <div className="grid-overlay" />
+      </div>
 
-          <div className="nav-links">
-            <button className="nav-link" onClick={() => scrollTo('experience')} type="button">Experience</button>
-            <button className="nav-link" onClick={() => scrollTo('skills')} type="button">Skills</button>
-          </div>
+      {/* ── Navbar ── */}
+      <header className="nav" role="banner">
+        <div className="nav-inner">
+          <button className="nav-logo" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} type="button">
+            <span className="logo-bracket">&lt;</span>
+            <span className="logo-name">RS</span>
+            <span className="logo-bracket">/&gt;</span>
+          </button>
 
-          <div className="nav-actions">
+          <nav className="nav-links" role="navigation">
+            {(['projects', 'experience', 'skills'] as const).map(id => (
+              <button key={id} className="nav-pill" onClick={() => scrollTo(id)} type="button">
+                {id}
+              </button>
+            ))}
+          </nav>
+
+          <div className="nav-right">
             {openToWork && (
-              <span className="nav-badge">
-                <span className="nav-badge-dot" />
+              <span className="avail-badge">
+                <span className="avail-dot" />
                 Open to work
               </span>
             )}
             <button
-              className="theme-toggle"
-              onClick={toggleTheme}
-              aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+              className="theme-btn"
+              onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+              aria-label="Toggle theme"
               type="button"
             >
-              {theme === 'light' ? <MoonIcon /> : <SunIcon />}
+              {theme === 'dark' ? '☀' : '☾'}
             </button>
           </div>
         </div>
-      </nav>
+      </header>
 
-      {/* ── Main Content ── */}
-      <main className="page">
+      <main>
 
-        {/* ── Hero ── */}
+        {/* ══════════════════════════════════════════
+            HERO
+        ══════════════════════════════════════════ */}
         <section className="hero" aria-label="Introduction">
-          <div className="hero-left">
-            <p className="eyebrow">
-              <span className="eyebrow-line" />
-              {portfolio?.profile.eyebrow ?? 'AI Systems - Production ML - Applied Research'}
-            </p>
-            <h1 className="hero-name">
-              {portfolio?.profile.name ?? 'Raj Sahoo'}
-            </h1>
-            <p className="hero-title">
-              {portfolio?.profile.headline ?? 'AI/ML Software Developer'}
-            </p>
-            <p className="hero-desc">
-              {portfolio?.profile.about ?? 'Building intelligent systems at the intersection of research and production.'}
-            </p>
-            <div className="hero-cta-row">
-              <button className="btn-primary" onClick={() => setWidgetOpen(true)} type="button">
-                Ask the AI assistant
-              </button>
-              <button className="btn-ghost" onClick={() => scrollTo('experience')} type="button">
-                View experience
-              </button>
+          <div className="hero-inner">
+
+            {/* Left column */}
+            <div className="hero-content">
+              <div className="hero-eyebrow-row">
+                <span className="hero-eyebrow">
+                  {profile?.eyebrow ?? 'Production AI · LangGraph · RAG · MLOps'}
+                </span>
+              </div>
+
+              <h1 className="hero-name">
+                {typedName}
+                <span className="cursor" aria-hidden>▌</span>
+              </h1>
+
+              <div className="hero-role-line">
+                <span className="role-prefix">—&nbsp;</span>
+                <span className="hero-role">{typedHead}</span>
+                {headDone && <span className="cursor role-cursor" aria-hidden>▌</span>}
+              </div>
+
+              <div className="hero-meta">
+                <span className="meta-chip">
+                  <span className="meta-icon">📍</span>
+                  {(profile?.currentLocation || profile?.location) ?? 'India'}
+                </span>
+                {desiredLoc.length > 0 && (
+                  <span className="meta-chip">
+                    <span className="meta-icon">🌐</span>
+                    Open to {desiredLoc.slice(0, 3).join(' · ')}
+                  </span>
+                )}
+                {experience[0] && (
+                  <span className="meta-chip">
+                    <span className="meta-icon">🏢</span>
+                    {experience[0].company}
+                  </span>
+                )}
+              </div>
+
+              <p className="hero-about">
+                {profile?.about ?? 'Building intelligent systems at the intersection of research and production.'}
+              </p>
+
+              <div className="hero-actions">
+                <button
+                  className="btn-primary"
+                  onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 100) }}
+                  type="button"
+                >
+                  <span className="btn-icon-left">💬</span>
+                  Ask AI assistant
+                </button>
+                <button className="btn-ghost" onClick={() => scrollTo('projects')} type="button">
+                  View projects <span className="btn-arrow">↓</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Right column — stats card */}
+            <div className="hero-stats-col">
+              <TiltCard className="stats-card">
+                <div className="stats-card-header">
+                  <span className="stats-dot stats-dot--green" />
+                  <span className="stats-dot stats-dot--yellow" />
+                  <span className="stats-dot stats-dot--red" />
+                  <span className="stats-file">portfolio.json</span>
+                </div>
+                <div className="stats-body">
+                  <StatRow label="projects" value={String(projects.length).padStart(2, '0')} />
+                  <StatRow label="stack" value={`${skills.reduce((n, s) => n + s.items.length, 0)} tools`} />
+                  <StatRow label="experience" value={experience[0]?.dateRange?.replace(' - Present', '+') ?? '2024+'} />
+                  <StatRow label="status" value={openToWork ? 'open_to_work' : 'employed'} accent={openToWork} />
+                  <StatRow label="location" value={(profile?.currentLocation || profile?.location) ?? 'India'} />
+                </div>
+              </TiltCard>
             </div>
           </div>
 
-          <div className="hero-right">
-            <div className="hero-stat-card">
-              <p className="stat-label">Location</p>
-              <p className="stat-value">{(portfolio?.profile.currentLocation || portfolio?.profile.location) ?? 'India'}</p>
-            </div>
-            <div className="hero-stat-card">
-              <p className="stat-label">Status</p>
-              <p className={`stat-value ${openToWork ? 'accent' : ''}`}>
-                {openToWork ? (
-                  <>
-                    Open to new roles
-                    {portfolio?.profile.desiredLocations && portfolio.profile.desiredLocations.length > 0 && (
-                      <span style={{display: 'block', fontSize: '0.85em', color: 'var(--text)', fontWeight: 'normal', marginTop: '0.15rem'}}>
-                        {portfolio.profile.desiredLocations.join(', ')}
-                      </span>
-                    )}
-                  </>
-                ) : 'Currently focused'}
-              </p>
-            </div>
-            {activeExperience && (
-              <div className="hero-stat-card">
-                <p className="stat-label">Current role</p>
-                <p className="stat-value">{activeExperience.company}</p>
-                {activeExperience.dateRange && (
-                  <div className="hero-meta-row">
-                    <span className="meta-pill">{activeExperience.dateRange}</span>
-                  </div>
-                )}
-              </div>
-            )}
+          {/* Scroll hint */}
+          <div className="scroll-hint" aria-hidden>
+            <span className="scroll-line" />
+            <span className="scroll-label">scroll</span>
           </div>
         </section>
 
-        {error && <div className="error-banner" role="alert">{error}</div>}
-        {loading && <p className="status-text">Loading portfolio data…</p>}
+        {loading && <div className="loading-bar" aria-label="Loading" />}
 
-        {/* ── Experience ── */}
-        <section className="section" id="experience" aria-labelledby="experience-heading">
-          <div className="section-header">
-            <h2 className="section-title" id="experience-heading">Experience</h2>
-            <span className="section-sub">{experience.length} roles</span>
-          </div>
-          <div className="experience-list">
-            {experience.map((item) => (
-              <article className="experience-item" key={item.company}>
-                <div className="exp-left">
-                  <p className="exp-date">{item.dateRange ?? 'Current'}</p>
-                  <p className="exp-company">{item.company}</p>
+        {/* ══════════════════════════════════════════
+            PROJECTS
+        ══════════════════════════════════════════ */}
+        {projects.length > 0 && (
+          <RevealSection id="projects" className="section">
+            <SectionLabel index="01" title="Projects" sub={`${projects.length} shipped`} />
+            <div className="projects-grid">
+              {projects.map((project, i) => (
+                <TiltCard
+                  key={project.id}
+                  className={`project-card ${i === 0 ? 'project-card--featured' : ''}`}
+                  onClick={() => setActiveProject(project)}
+                >
+                  <div className="project-card-inner">
+                    <div className="project-top">
+                      <span className="project-num">{String(i + 1).padStart(2, '0')}</span>
+                      <span className="project-arrow">↗</span>
+                    </div>
+                    <h3 className="project-title">{project.title}</h3>
+                    <p className="project-summary">{project.summary}</p>
+                    <div className="project-stack">
+                      {project.techStack.slice(0, 5).map(t => (
+                        <span className="stack-pill" key={t}>{t}</span>
+                      ))}
+                      {project.techStack.length > 5 && (
+                        <span className="stack-pill stack-pill--more">+{project.techStack.length - 5}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="card-shine" aria-hidden />
+                </TiltCard>
+              ))}
+            </div>
+          </RevealSection>
+        )}
+
+        {/* ══════════════════════════════════════════
+            EXPERIENCE
+        ══════════════════════════════════════════ */}
+        <RevealSection id="experience" className="section">
+          <SectionLabel index="02" title="Experience" sub={experience.length > 0 ? `${experience.length} role${experience.length === 1 ? '' : 's'}` : ''} />
+          <div className="timeline">
+            {experience.map((exp, i) => (
+              <article className="timeline-item" key={`${exp.company}-${i}`}>
+                <div className="timeline-marker">
+                  <span className="tl-dot" />
+                  {i < experience.length - 1 && <span className="tl-line" />}
                 </div>
-                <div className="exp-right">
-                  <h3 className="exp-role">{item.company}</h3>
-                  <ul className="exp-items">
-                    {item.items.slice(0, 5).map(work => (
-                      <li key={work}>{work}</li>
-                    ))}
-                  </ul>
-                  {item.highlights.length > 0 && (
-                    <p className="exp-highlight">{item.highlights[0]}</p>
+                <div className="timeline-body">
+                  <div className="timeline-head">
+                    <div>
+                      <h3 className="tl-role">{exp.role || exp.company}</h3>
+                      <p className="tl-company">{exp.company}</p>
+                    </div>
+                    {exp.dateRange && (
+                      <span className="tl-date">{exp.dateRange}</span>
+                    )}
+                  </div>
+                  {exp.summary && <p className="tl-summary">{exp.summary}</p>}
+                  {exp.items.length > 0 && (
+                    <ul className="tl-items">
+                      {exp.items.map(item => (
+                        <li key={item}>
+                          <span className="tl-bullet">▸</span>
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
                   )}
+                  {exp.highlights.slice(0, 2).map(h => (
+                    <p className="tl-highlight" key={h}>{h}</p>
+                  ))}
                 </div>
               </article>
             ))}
+            {experience.length === 0 && !loading && (
+              <p className="empty-state">Add experience in the admin panel.</p>
+            )}
           </div>
-        </section>
+        </RevealSection>
 
-        {/* ── Skills ── */}
-        <section className="section" id="skills" aria-labelledby="skills-heading">
-          <div className="section-header">
-            <h2 className="section-title" id="skills-heading">Skills</h2>
-            <span className="section-sub">{skills.length} categories</span>
-          </div>
-          <div className="skills-table">
-            {skills.map((skill) => (
-              <div className="skill-row" key={skill.category}>
-                <span className="skill-cat-label">{skill.category}</span>
+        {/* ══════════════════════════════════════════
+            SKILLS
+        ══════════════════════════════════════════ */}
+        <RevealSection id="skills" className="section">
+          <SectionLabel index="03" title="Skills" sub={`${skills.reduce((n, s) => n + s.items.length, 0)} tools`} />
+          <div className="skills-grid">
+            {skills.map(cat => (
+              <div className="skill-cat" key={cat.category}>
+                <div className="skill-cat-header">
+                  <span className="skill-cat-icon">{catIcon[cat.category] ?? '◆'}</span>
+                  <span className="skill-cat-name">{cat.category}</span>
+                </div>
                 <div className="skill-chips">
-                  {skill.items.slice(0, 10).map(item => (
-                    <span className="chip" key={item}>{item}</span>
+                  {cat.items.map(item => (
+                    <span className="skill-chip" key={item}>{item}</span>
                   ))}
                 </div>
               </div>
             ))}
+            {skills.length === 0 && !loading && (
+              <p className="empty-state">Add skills in the admin panel.</p>
+            )}
           </div>
-        </section>
+        </RevealSection>
 
-        {/* ── More Work ── */}
-        {resumeProjects.length > 0 && (
-          <section className="section" aria-labelledby="more-heading">
-            <div className="section-header">
-              <h2 className="section-title" id="more-heading">More Work</h2>
-              <span className="section-sub">Additional topics in the knowledge base</span>
-            </div>
-            <div className="more-tags">
-              {resumeProjects.map(project => (
-                <span className="more-tag" key={project}>{project}</span>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* ── Footer ── */}
-        <footer className="page-footer">
-          <span className="footer-name">{portfolio?.profile.name ?? 'Raj Sahoo'}</span>
-          <span className="footer-copy">AI/ML Engineer · {(portfolio?.profile.currentLocation || portfolio?.profile.location) ?? 'India'}</span>
+        {/* ══════════════════════════════════════════
+            FOOTER
+        ══════════════════════════════════════════ */}
+        <footer className="footer">
+          <div className="footer-inner">
+            <span className="footer-name">
+              <span className="logo-bracket">&lt;</span>
+              {name}
+              <span className="logo-bracket">/&gt;</span>
+            </span>
+            <span className="footer-tagline">
+              AI/ML Engineer · {(profile?.currentLocation || profile?.location) ?? 'India'}
+            </span>
+            <button
+              className="footer-chat-btn"
+              onClick={() => setChatOpen(true)}
+              type="button"
+            >
+              💬 Ask the AI
+            </button>
+          </div>
         </footer>
 
       </main>
 
-      {/* ── Chat Widget ── */}
-      <div className="chat-widget" role="complementary" aria-label="Portfolio assistant">
-        {!widgetOpen ? (
+      {/* ══════════════════════════════════════════
+          CHAT WIDGET
+      ══════════════════════════════════════════ */}
+      <>
+        {!chatOpen && (
           <button
             className="chat-fab"
-            onClick={() => setWidgetOpen(true)}
+            onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 80) }}
+            aria-label="Open portfolio assistant"
             type="button"
           >
-            <span className="chat-fab-dot" />
-            Ask the AI
+            <span className="fab-ring" aria-hidden />
+            <span className="fab-icon">💬</span>
           </button>
-        ) : (
-          <div className="widget-panel">
-            <div className="widget-header">
-              <div className="widget-header-text">
-                <strong>Portfolio Assistant</strong>
-                <p>Grounded in Raj's indexed documents</p>
-              </div>
-              <button
-                className="widget-close-btn"
-                onClick={() => setWidgetOpen(false)}
-                aria-label="Close assistant"
-                type="button"
-              >
-                ×
-              </button>
-            </div>
+        )}
 
-            <div className="widget-messages" role="log" aria-live="polite">
-              {messages.map((message, index) => (
-                <div
-                  className={`message ${message.role}`}
-                  key={`${message.role}-${index}`}
-                >
-                  <p>{message.content}</p>
+        <div className={`chat-panel ${chatOpen ? 'chat-panel--open' : ''}`} role="complementary">
+          <div className="chat-header">
+            <div className="chat-header-info">
+              <span className="chat-avatar">🤖</span>
+              <div>
+                <p className="chat-title">Portfolio Assistant</p>
+                <p className="chat-subtitle">Powered by RAG · {591} chunks indexed</p>
+              </div>
+            </div>
+            <button
+              className="chat-close"
+              onClick={() => setChatOpen(false)}
+              aria-label="Close chat"
+              type="button"
+            >
+              ✕
+            </button>
+          </div>
+
+          {activeProject && (
+            <div className="chat-context-bar">
+              <span>Viewing:</span>
+              <strong>{activeProject.title}</strong>
+              <button onClick={() => setActiveProject(null)} type="button">✕</button>
+            </div>
+          )}
+
+          <div className="chat-messages" role="log" aria-live="polite">
+            {messages.map((msg, i) => (
+              <div key={i} className={`chat-msg chat-msg--${msg.role}`}>
+                <div className="chat-bubble">{msg.content}</div>
+              </div>
+            ))}
+            {chatting && (
+              <div className="chat-msg chat-msg--assistant">
+                <div className="chat-bubble chat-bubble--typing">
+                  <span /><span /><span />
                 </div>
-              ))}
-              {chatting && (
-                <div className="message assistant typing" aria-label="Assistant is thinking">
-                  <div className="typing-indicator">
-                    <span /><span /><span />
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+
+          <div className="chat-input-row">
+            <input
+              ref={chatInputRef}
+              className="chat-input"
+              value={chatInput}
+              onChange={e => setChatInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') void send() }}
+              placeholder="Ask about projects, skills, experience…"
+              aria-label="Message"
+              type="text"
+            />
+            <button
+              className="chat-send"
+              onClick={() => void send()}
+              disabled={chatting || !chatInput.trim()}
+              type="button"
+            >
+              {chatting ? '⏳' : '↑'}
+            </button>
+          </div>
+        </div>
+        {chatOpen && <div className="chat-backdrop" onClick={() => setChatOpen(false)} aria-hidden />}
+      </>
+
+      {/* ══════════════════════════════════════════
+          PROJECT MODAL
+      ══════════════════════════════════════════ */}
+      {activeProject && (
+        <div
+          className="modal-backdrop"
+          onClick={e => { if (e.target === e.currentTarget) setActiveProject(null) }}
+          role="presentation"
+        >
+          <div className="modal" role="dialog" aria-modal aria-labelledby="modal-title">
+            <div className="modal-glow" aria-hidden />
+            <button className="modal-close" onClick={() => setActiveProject(null)} aria-label="Close" type="button">✕</button>
+
+            <p className="modal-label">Project</p>
+            <h2 id="modal-title" className="modal-title">{activeProject.title}</h2>
+
+            <div className="modal-body">
+              <div className="modal-section">
+                <p className="modal-section-heading">Overview</p>
+                <p className="modal-text">{activeProject.summary}</p>
+              </div>
+
+              {(activeProject.whatItDoes ?? []).length > 0 && (
+                <div className="modal-section">
+                  <p className="modal-section-heading">What it does</p>
+                  <ul className="modal-list">
+                    {(activeProject.whatItDoes ?? []).map(line => (
+                      <li key={line}><span className="modal-bullet">▸</span>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {activeProject.techStack.length > 0 && (
+                <div className="modal-section">
+                  <p className="modal-section-heading">Tech Stack</p>
+                  <div className="modal-stack">
+                    {activeProject.techStack.map(t => <span className="stack-pill" key={t}>{t}</span>)}
                   </div>
                 </div>
               )}
-              <div ref={messagesEndRef} />
             </div>
 
-            <div className="widget-input-row">
-              <input
-                className="widget-input"
-                onChange={e => setChatInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') void sendMessage() }}
-                placeholder="Ask about projects, skills, experience…"
-                type="text"
-                value={chatInput}
-                aria-label="Message input"
-              />
+            <div className="modal-actions">
               <button
-                className="widget-send"
-                disabled={chatting}
-                onClick={() => void sendMessage()}
+                className="btn-primary"
+                onClick={() => {
+                  setChatOpen(true)
+                  setMessages(prev => [...prev, {
+                    role: 'assistant',
+                    content: `I can see you're exploring "${activeProject.title}". What would you like to know about it?`
+                  }])
+                }}
                 type="button"
               >
-                {chatting ? '…' : 'Send'}
+                💬 Ask about this project
               </button>
             </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Project Modal ── */}
-      {projectModalOpen && (
-        <div
-          className="modal-overlay"
-          onClick={e => { if (e.currentTarget === e.target) closeProject() }}
-          role="presentation"
-        >
-          <div className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-            <div className="modal-header">
-              <div>
-                <p className="modal-tag">Project</p>
-                <h2 id="modal-title">{activeProject?.title ?? 'Project'}</h2>
-              </div>
-              <button
-                className="modal-close"
-                onClick={closeProject}
-                aria-label="Close project details"
-                type="button"
-              >
-                ×
-              </button>
-            </div>
-
-            {projectDetailsLoading && <p className="status-text" style={{ padding: '1.5rem 2rem' }}>Loading…</p>}
-
-            {projectDetails && (
-              <div className="modal-body">
-                <div className="modal-section">
-                  <p className="modal-section-label">Overview</p>
-                  <p>{projectDetails.summary}</p>
-                </div>
-
-                {projectDetails.whatItDoes && projectDetails.whatItDoes.length > 0 ? (
-                  <div className="modal-section">
-                    <p className="modal-section-label">What it does</p>
-                    <ul className="modal-list">
-                      {projectDetails.whatItDoes.map(line => (
-                        <li key={line}>{line}</li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (
-                  <div className="modal-section">
-                    <p className="modal-section-label">What it does</p>
-                    <p style={{ color: 'var(--faint)', fontSize: '0.875rem' }}>
-                      Upload this project's document in Admin with "Create or update a project card" enabled to generate details here.
-                    </p>
-                  </div>
-                )}
-
-                {projectDetails.techStack.length > 0 && (
-                  <div className="modal-section">
-                    <p className="modal-section-label">Tech Stack</p>
-                    <div className="tech-pills" style={{ marginTop: 0 }}>
-                      {projectDetails.techStack.map(tech => (
-                        <span className="tech-pill" key={tech}>{tech}</span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {projectDetailsError && (
-                  <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.75rem', color: 'var(--faint)' }}>
-                    {projectDetailsError}
-                  </p>
-                )}
-              </div>
-            )}
           </div>
         </div>
       )}
@@ -514,4 +672,25 @@ function PortfolioPage() {
   )
 }
 
-export default PortfolioPage
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function SectionLabel({ index, title, sub }: { index: string; title: string; sub?: string }) {
+  return (
+    <div className="section-label">
+      <span className="section-num">{index}</span>
+      <h2 className="section-title">{title}</h2>
+      {sub && <span className="section-sub">{sub}</span>}
+    </div>
+  )
+}
+
+function StatRow({ label, value, accent = false }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="stat-row">
+      <span className="stat-key">"{label}"</span>
+      <span className="stat-colon">:</span>
+      <span className={`stat-val ${accent ? 'stat-val--accent' : ''}`}>"{value}"</span>
+      <span className="stat-comma">,</span>
+    </div>
+  )
+}

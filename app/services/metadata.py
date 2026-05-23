@@ -799,8 +799,14 @@ class MongoMetadataStore:
         }
 
 
-metadata_store = (
-    MongoMetadataStore(settings.mongodb_uri, settings.mongodb_db)
-    if settings.mongodb_uri
-    else SqliteMetadataStore(settings.sqlite_path)
-)
+def _select_metadata_store():
+    if settings.database_url:
+        from app.services.postgres_metadata import PostgresMetadataStore
+
+        return PostgresMetadataStore()
+    if settings.mongodb_uri:
+        return MongoMetadataStore(settings.mongodb_uri, settings.mongodb_db)
+    return SqliteMetadataStore(settings.sqlite_path)
+
+
+metadata_store = _select_metadata_store()

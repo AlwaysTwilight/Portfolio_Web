@@ -1,54 +1,45 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react'
+import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+
+/* ──────────────────────────────────────────────
+   Types
+────────────────────────────────────────────── */
+type ExperienceItem = {
+  company: string
+  role?: string
+  dateRange?: string
+  summary?: string
+  items: string[]
+  highlights: string[]
+}
+
+type SkillCategory = { category: string; items: string[] }
 
 type DocumentSummary = {
   logical_document_key: string
   active_version_id?: string | null
   updated_at?: string | null
-  versions: Array<{
-    version_id: string
-    file_name: string
-    status: string
-    is_active: boolean
-    chunk_count: number
-  }>
-}
-
-type ExperienceItem = {
-  company: string
-  dateRange?: string
-  items: string[]
-  highlights: string[]
-}
-
-type SkillCategory = {
-  category: string
-  items: string[]
+  versions: Array<{ version_id: string; file_name: string; status: string; is_active: boolean; chunk_count: number }>
 }
 
 type PortfolioPayload = {
   profile: {
+    openToWork: boolean
     name?: string
     location?: string
     headline?: string
     about?: string
     eyebrow?: string
-    openToWork: boolean
+    currentLocation?: string
+    desiredLocations?: string[]
     experience?: ExperienceItem[]
     skills?: SkillCategory[]
   }
-  documents: DocumentSummary[]
+  projects?: AdminProject[]
+  documents?: DocumentSummary[]
 }
 
-type UploadResult = {
-  logical_document_key: string
-  version_id: string
-  status: string
-  chunk_count: number
-  project_id?: string | null
-}
-
-type AdminSettings = { 
-  open_to_work: boolean 
+type AdminSettings = {
+  open_to_work: boolean
   current_location?: string
   desired_locations?: string[]
   name?: string
@@ -67,9 +58,9 @@ type AdminProject = {
   techStack: string[]
   whatItDoes?: string[]
   isVisible?: boolean
+  isReadOnly?: boolean
   sourcePath: string
   sortOrder?: number
-  updatedAt?: string
 }
 
 type RagDocument = {
@@ -80,726 +71,1188 @@ type RagDocument = {
   chunk_count: number
 }
 
-const API_BASE_URL      = import.meta.env.VITE_API_BASE_URL      || 'http://localhost:8000'
-const PORTFOLIO_ORIGIN  = import.meta.env.VITE_PORTFOLIO_ORIGIN  || 'http://localhost:3000'
-const ADMIN_TOKEN_KEY   = 'portfolio_admin_token'
-
-function fileLabel(path: string) {
-  const parts = path.split(/[\\/]/)
-  return parts[parts.length - 1] || path
+type UploadResult = {
+  logical_document_key: string
+  version_id: string
+  status: string
+  chunk_count: number
+  project_id?: string | null
 }
 
-function slugify(value: string) {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+type SectionId = 'overview' | 'profile' | 'experience' | 'skills' | 'projects' | 'documents'
+
+const API_BASE_URL     = import.meta.env.VITE_API_BASE_URL     || 'http://localhost:8000'
+const PORTFOLIO_ORIGIN = import.meta.env.VITE_PORTFOLIO_ORIGIN || 'http://localhost:3000'
+const ADMIN_TOKEN_KEY  = 'portfolio_admin_token'
+
+/* ──────────────────────────────────────────────
+   Helpers
+────────────────────────────────────────────── */
+function splitList(value: string): string[] {
+  return value.split(',').map(s => s.trim()).filter(Boolean)
+}
+function splitLines(value: string): string[] {
+  return value.split('\n').map(s => s.trim()).filter(Boolean)
 }
 
-function experienceToText(items: ExperienceItem[] = []) {
-  return items.map(item => [
-    item.company,
-    item.dateRange || '',
-    (item.items || []).join(' | '),
-    (item.highlights || []).join(' | '),
-  ].join('\n')).join('\n---\n')
+/* ──────────────────────────────────────────────
+   Icons
+────────────────────────────────────────────── */
+function Icon({ path, size = 18 }: { path: string; size?: number }) {
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d={path} />
+    </svg>
+  )
 }
 
-function textToExperience(value: string): ExperienceItem[] {
-  return value.split(/\n-{3,}\n/g).map(block => {
-    const [company = '', dateRange = '', items = '', highlights = ''] = block.split('\n')
-    return {
-      company: company.trim(),
-      dateRange: dateRange.trim(),
-      items: items.split('|').map(item => item.trim()).filter(Boolean),
-      highlights: highlights.split('|').map(item => item.trim()).filter(Boolean),
-    }
-  }).filter(item => item.company)
+const ICONS: Record<SectionId, string> = {
+  overview:   'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
+  profile:    'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z',
+  experience: 'M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2',
+  skills:     'M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z',
+  projects:   'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
+  documents:  'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8',
 }
 
-function skillsToText(items: SkillCategory[] = []) {
-  return items.map(item => `${item.category}: ${(item.items || []).join(', ')}`).join('\n')
-}
+const SPARKLE = 'M12 3l1.6 4.9L18.5 9l-4.9 1.6L12 15.5l-1.6-4.9L5.5 9l4.9-1.1L12 3z'
 
-function textToSkills(value: string): SkillCategory[] {
-  return value.split('\n').map(line => {
-    const [category = '', rest = ''] = line.split(':')
-    return {
-      category: category.trim(),
-      items: rest.split(',').map(item => item.trim()).filter(Boolean),
-    }
-  }).filter(item => item.category)
-}
-
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE_URL}${path}`, init)
-  if (!res.ok) throw new Error(await res.text())
-  return res.json() as Promise<T>
+/* ──────────────────────────────────────────────
+   API client
+────────────────────────────────────────────── */
+function makeApi(getToken: () => string) {
+  async function api<T>(path: string, init?: RequestInit): Promise<T> {
+    const token = getToken()
+    const headers: Record<string, string> = { ...(init?.headers as Record<string, string> | undefined) }
+    if (token) headers['X-Admin-Token'] = token
+    const res = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+    if (!res.ok) throw new Error(await res.text())
+    if (res.status === 204) return undefined as T
+    return res.json() as Promise<T>
+  }
+  return api
 }
 
 function AdminPage() {
-  const [portfolio, setPortfolio]   = useState<PortfolioPayload | null>(null)
-  const [loading, setLoading]       = useState(true)
-  const [error, setError]           = useState<string | null>(null)
-  const [uploading, setUploading]   = useState(false)
-  const [uploadStatus, setUploadStatus] = useState<string | null>(null)
-
-  const [openToWorkSaving, setOpenToWorkSaving] = useState(false)
-  const [openToWork, setOpenToWork] = useState(true)
-  const [currentLocation, setCurrentLocation] = useState('India')
-  const [desiredLocations, setDesiredLocations] = useState('')
-  const [profileName, setProfileName] = useState('Raj Sahoo')
-  const [profileLocation, setProfileLocation] = useState('India')
-  const [profileHeadline, setProfileHeadline] = useState('AI/ML Software Developer')
-  const [profileEyebrow, setProfileEyebrow] = useState('AI Systems - Production ML - Applied Research')
-  const [profileAbout, setProfileAbout] = useState('')
-  const [experienceText, setExperienceText] = useState('')
-  const [skillsText, setSkillsText] = useState('')
-  const [settingsStatus, setSettingsStatus] = useState<string | null>(null)
-
   const [adminToken, setAdminToken] = useState(() => localStorage.getItem(ADMIN_TOKEN_KEY) || '')
+  const api = useMemo(() => makeApi(() => adminToken), [adminToken])
 
-  const [projectsLoading, setProjectsLoading] = useState(false)
-  const [projectsError, setProjectsError]     = useState<string | null>(null)
-  const [projects, setProjects]               = useState<AdminProject[]>([])
-  const [ragDocs, setRagDocs]                 = useState<RagDocument[]>([])
-  const [ragDocsError, setRagDocsError]       = useState<string | null>(null)
+  const [section, setSection]     = useState<SectionId>('overview')
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [theme, setTheme]         = useState<'light' | 'dark'>(() =>
+    (localStorage.getItem('theme') as 'light' | 'dark') ||
+    (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'))
 
-  const [newTitle, setNewTitle]           = useState('')
-  const [newSummary, setNewSummary]       = useState('')
-  const [newTechStack, setNewTechStack]   = useState('')
-  const [newWhatItDoes, setNewWhatItDoes] = useState('')
-  const [newIsVisible, setNewIsVisible]   = useState(true)
-  const [newSourcePath, setNewSourcePath] = useState('Admin')
-  const [newSortOrder, setNewSortOrder]   = useState('0')
+  const [loading, setLoading]     = useState(true)
+  const [error, setError]         = useState<string | null>(null)
+  const [toast, setToast]         = useState<string | null>(null)
 
-  const [createProjectFromUpload, setCreateProjectFromUpload] = useState(true)
-  const [uploadProjectId, setUploadProjectId]         = useState('')
-  const [uploadProjectTitle, setUploadProjectTitle]   = useState('')
-  const [uploadProjectSortOrder, setUploadProjectSortOrder] = useState('0')
-  const [uploadProjectSourcePath, setUploadProjectSourcePath] = useState('')
+  const [openToWork, setOpenToWork]             = useState(true)
+  const [name, setName]                         = useState('Raj Sahoo')
+  const [headline, setHeadline]                 = useState('AI/ML Software Developer')
+  const [eyebrow, setEyebrow]                   = useState('AI Systems - Production ML - Applied Research')
+  const [about, setAbout]                       = useState('')
+  const [location, setLocation]                 = useState('India')
+  const [currentLocation, setCurrentLocation]   = useState('India')
+  const [desiredLocations, setDesiredLocations] = useState('')
 
-  const [editingId, setEditingId]     = useState<string | null>(null)
-  const editingProject = useMemo(() => projects.find(p => p.id === editingId) || null, [editingId, projects])
-  const [editTitle, setEditTitle]     = useState('')
-  const [editSummary, setEditSummary] = useState('')
-  const [editTechStack, setEditTechStack]   = useState('')
-  const [editWhatItDoes, setEditWhatItDoes] = useState('')
-  const [editIsVisible, setEditIsVisible]   = useState(true)
-  const [editSourcePath, setEditSourcePath] = useState('')
-  const [editSortOrder, setEditSortOrder]   = useState('0')
-
-  function adminHeaders(): HeadersInit {
-    return adminToken ? { 'X-Admin-Token': adminToken } : {}
-  }
-
-  async function loadPortfolio() {
-    try {
-      setLoading(true)
-      const payload = await fetchJson<PortfolioPayload>('/portfolio')
-      setPortfolio(payload)
-      setOpenToWork(payload.profile.openToWork)
-      setProfileName(payload.profile.name || 'Raj Sahoo')
-      setProfileLocation(payload.profile.location || 'India')
-      setProfileHeadline(payload.profile.headline || 'AI/ML Software Developer')
-      setProfileEyebrow(payload.profile.eyebrow || 'AI Systems - Production ML - Applied Research')
-      setProfileAbout(payload.profile.about || '')
-      setExperienceText(experienceToText(payload.profile.experience || []))
-      setSkillsText(skillsToText(payload.profile.skills || []))
-      setError(null)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not load data.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function loadAdminSettings() {
-    try {
-      const payload = await fetchJson<AdminSettings>('/admin/settings', { headers: adminHeaders() })
-      setOpenToWork(payload.open_to_work)
-      setCurrentLocation(payload.current_location || 'India')
-      setDesiredLocations((payload.desired_locations || []).join(', '))
-      setProfileName(payload.name || 'Raj Sahoo')
-      setProfileLocation(payload.location || payload.current_location || 'India')
-      setProfileHeadline(payload.headline || 'AI/ML Software Developer')
-      setProfileEyebrow(payload.eyebrow || 'AI Systems - Production ML - Applied Research')
-      setProfileAbout(payload.about || '')
-      setExperienceText(experienceToText(payload.experience || []))
-      setSkillsText(skillsToText(payload.skills || []))
-    } catch { /* keep usable */ }
-  }
-
-  async function loadProjects() {
-    try {
-      setProjectsLoading(true)
-      setProjectsError(null)
-      const payload = await fetchJson<{ projects: AdminProject[] }>('/admin/projects', { headers: adminHeaders() })
-      setProjects(payload.projects || [])
-    } catch (err) {
-      setProjectsError(err instanceof Error ? err.message : 'Could not load projects.')
-    } finally {
-      setProjectsLoading(false)
-    }
-  }
-
-  async function loadRagDocs() {
-    try {
-      setRagDocsError(null)
-      const payload = await fetchJson<{ documents: RagDocument[] }>('/admin/rag/documents', { headers: adminHeaders() })
-      setRagDocs(payload.documents || [])
-    } catch (err) {
-      setRagDocsError(err instanceof Error ? err.message : 'Could not load indexed documents.')
-    }
-  }
+  const [experience, setExperience] = useState<ExperienceItem[]>([])
+  const [skills, setSkills]         = useState<SkillCategory[]>([])
+  const [projects, setProjects]     = useState<AdminProject[]>([])
+  const [documents, setDocuments]   = useState<DocumentSummary[]>([])
+  const [ragDocs, setRagDocs]       = useState<RagDocument[]>([])
+  const bcRef = useRef<BroadcastChannel | null>(null)
 
   useEffect(() => {
-    void loadPortfolio()
-    void loadAdminSettings()
-    void loadProjects()
-    void loadRagDocs()
-  }, [])
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
 
-  useEffect(() => {
-    if (!editingProject) return
-    setEditTitle(editingProject.title)
-    setEditSummary(editingProject.summary)
-    setEditTechStack(editingProject.techStack.join(', '))
-    setEditWhatItDoes((editingProject.whatItDoes || []).join('\n'))
-    setEditIsVisible(editingProject.isVisible !== false)
-    setEditSourcePath(editingProject.sourcePath)
-    setEditSortOrder(String(editingProject.sortOrder ?? 0))
-  }, [editingProject])
+  function flash(message: string) {
+    setToast(message)
+    window.setTimeout(() => setToast(null), 3200)
+  }
+
+  function notifyPortfolio() {
+    bcRef.current?.postMessage({ type: 'data-updated' })
+  }
 
   function persistToken(value: string) {
     const trimmed = value.trim()
     setAdminToken(trimmed)
-    if (!trimmed) { localStorage.removeItem(ADMIN_TOKEN_KEY); return }
-    localStorage.setItem(ADMIN_TOKEN_KEY, trimmed)
+    if (trimmed) localStorage.setItem(ADMIN_TOKEN_KEY, trimmed)
+    else localStorage.removeItem(ADMIN_TOKEN_KEY)
   }
+
+  async function loadAll() {
+    setLoading(true)
+    try {
+      const [settings, pfPayload] = await Promise.all([
+        api<AdminSettings>('/admin/settings'),
+        fetch(`${API_BASE_URL}/portfolio`).then(r => r.json()).catch(() => null) as Promise<PortfolioPayload | null>,
+      ])
+      const pf = pfPayload?.profile
+      setOpenToWork(settings.open_to_work)
+      setName(settings.name || pf?.name || 'Raj Sahoo')
+      setHeadline(settings.headline || pf?.headline || 'AI/ML Software Developer')
+      setEyebrow(settings.eyebrow || pf?.eyebrow || 'AI Systems - Production ML - Applied Research')
+      setAbout(settings.about || pf?.about || '')
+      setLocation(settings.location || settings.current_location || pf?.location || 'India')
+      setCurrentLocation(settings.current_location || pf?.currentLocation || 'India')
+      setDesiredLocations((settings.desired_locations?.length ? settings.desired_locations : (pf?.desiredLocations || [])).join(', '))
+      setExperience(settings.experience?.length ? settings.experience : (pf?.experience || []))
+      setSkills(settings.skills?.length ? settings.skills : (pf?.skills || []))
+      setDocuments(pfPayload?.documents || [])
+      setError(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load admin settings.')
+    } finally {
+      setLoading(false)
+    }
+    void loadProjects()
+    void loadRagDocs()
+  }
+
+  async function loadProjects() {
+    try {
+      const [pfPayload, adminRes] = await Promise.all([
+        fetch(`${API_BASE_URL}/portfolio`).then(r => r.json()).catch(() => ({ projects: [] })) as Promise<PortfolioPayload>,
+        api<{ projects: AdminProject[] }>('/admin/projects').catch(() => ({ projects: [] })),
+      ])
+      const adminProjects: AdminProject[] = adminRes.projects || []
+      const adminIds = new Set(adminProjects.map(p => p.id))
+      const seedProjects = (pfPayload?.projects || [])
+        .filter(p => !adminIds.has(p.id))
+        .map(p => ({ ...p, isReadOnly: true }))
+      setProjects([...adminProjects, ...seedProjects])
+    } catch { /* keep usable */ }
+  }
+
+  async function loadRagDocs() {
+    try { setRagDocs((await api<{ documents: RagDocument[] }>('/admin/rag/documents')).documents || []) }
+    catch { /* keep usable */ }
+  }
+
+  useEffect(() => { void loadAll() }, [])
+
+  // BroadcastChannel — notify portfolio page after every admin save
+  useEffect(() => {
+    bcRef.current = new BroadcastChannel('portfolio-updates')
+    return () => { bcRef.current?.close() }
+  }, [])
+
+  async function persistSettings(overrides?: Partial<{
+    openToWork: boolean; experience: ExperienceItem[]; skills: SkillCategory[]
+  }>) {
+    const payload = {
+      open_to_work: overrides?.openToWork ?? openToWork,
+      current_location: currentLocation,
+      desired_locations: splitList(desiredLocations),
+      name, location, headline, about, eyebrow,
+      experience: overrides?.experience ?? experience,
+      skills: overrides?.skills ?? skills,
+    }
+    const result = await api<AdminSettings>('/admin/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    setOpenToWork(result.open_to_work)
+    setExperience(result.experience || payload.experience)
+    setSkills(result.skills || payload.skills)
+    notifyPortfolio()
+  }
+
+  async function aiRewrite(kind: string, fields: Record<string, unknown>, notes: string): Promise<any> {
+    const res = await api<{ draft: any; provider: string }>('/admin/ai/rewrite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind, fields, notes }),
+    })
+    return res.draft
+  }
+
+  const navItems: Array<{ id: SectionId; label: string }> = [
+    { id: 'overview',   label: 'Overview' },
+    { id: 'profile',    label: 'Profile' },
+    { id: 'experience', label: 'Experience' },
+    { id: 'skills',     label: 'Skills' },
+    { id: 'projects',   label: 'Projects' },
+    { id: 'documents',  label: 'Documents' },
+  ]
+
+  return (
+    <div className="cms-shell">
+
+      {/* ── Sidebar ── */}
+      <aside className={`cms-sidebar${sidebarOpen ? ' open' : ''}`}>
+        {/* Gradient brand header */}
+        <div className="cms-brand">
+          <div className="cms-brand-icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3l1.6 4.9L18.5 9l-4.9 1.6L12 15.5l-1.6-4.9L5.5 9l4.9-1.1L12 3z"/>
+            </svg>
+          </div>
+          <div>
+            <div className="cms-brand-name">
+              {name || 'Portfolio'} <em>cms</em>
+            </div>
+            <div style={{ fontSize: '0.68rem', color: 'rgba(255,255,255,0.6)', fontFamily: "'DM Mono', monospace", letterSpacing: '0.06em' }}>
+              Admin Panel
+            </div>
+          </div>
+        </div>
+
+        <nav className="cms-nav">
+          {navItems.map(item => (
+            <button
+              key={item.id}
+              className={`cms-nav-item${section === item.id ? ' active' : ''}`}
+              onClick={() => { setSection(item.id); setSidebarOpen(false) }}
+              type="button"
+            >
+              <Icon path={ICONS[item.id]} />
+              {item.label}
+            </button>
+          ))}
+        </nav>
+
+        <div className="cms-sidebar-foot">
+          <a className="cms-view-site" href={PORTFOLIO_ORIGIN} rel="noreferrer" target="_blank">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3"/>
+            </svg>
+            View live site
+          </a>
+        </div>
+      </aside>
+
+      {sidebarOpen && <div className="cms-scrim" onClick={() => setSidebarOpen(false)} />}
+
+      {/* ── Main column ── */}
+      <div className="cms-main">
+        <header className="cms-topbar">
+          <button className="cms-burger" onClick={() => setSidebarOpen(o => !o)} type="button" aria-label="Toggle menu">
+            <Icon path="M3 12h18 M3 6h18 M3 18h18" />
+          </button>
+          <div className="cms-topbar-title">{navItems.find(n => n.id === section)?.label}</div>
+          <div className="cms-topbar-actions">
+            <span className={`cms-status-chip${openToWork ? ' on' : ''}`}>
+              <span className="cms-status-dot" />
+              {openToWork ? 'Open to work' : 'Not looking'}
+            </span>
+            <button
+              className="cms-icon-btn"
+              onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}
+              type="button"
+              aria-label="Toggle theme"
+            >
+              <Icon path={theme === 'light'
+                ? 'M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'
+                : 'M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z'}
+              />
+            </button>
+          </div>
+        </header>
+
+        <main className="cms-content">
+          {error && <div className="error-banner" role="alert">{error}</div>}
+          {!adminToken && (
+            <div className="cms-callout">
+              No admin token set. If <code>ADMIN_TOKEN</code> is configured on the API, add it under Overview → Access to enable saving.
+            </div>
+          )}
+          {loading && <p className="status-text">Loading…</p>}
+
+          {section === 'overview' && (
+            <OverviewSection
+              openToWork={openToWork}
+              counts={{ experience: experience.length, skills: skills.length, projects: projects.length, documents: ragDocs.length }}
+              adminToken={adminToken}
+              onToken={persistToken}
+              onToggleOpenToWork={async (next) => {
+                try { await persistSettings({ openToWork: next }); flash(next ? 'Marked as open to work.' : 'Marked as not looking.') }
+                catch (e) { flash(e instanceof Error ? e.message : 'Save failed.') }
+              }}
+              onGoto={setSection}
+            />
+          )}
+
+          {section === 'profile' && (
+            <ProfileSection
+              values={{ name, headline, eyebrow, about, location, currentLocation, desiredLocations }}
+              set={{ setName, setHeadline, setEyebrow, setAbout, setLocation, setCurrentLocation, setDesiredLocations }}
+              openToWork={openToWork}
+              onToggleOpenToWork={async (next) => {
+                try { await persistSettings({ openToWork: next }); flash(next ? 'Marked as open to work.' : 'Marked as not looking.') }
+                catch (e) { flash(e instanceof Error ? e.message : 'Save failed.') }
+              }}
+              onPolishAbout={async (notes) => (await aiRewrite('about', {}, notes)).text || ''}
+              onSave={async () => { await persistSettings(); flash('Profile saved.') }}
+              onError={(m) => flash(m)}
+            />
+          )}
+
+          {section === 'experience' && (
+            <ExperienceSection
+              items={experience}
+              aiRewrite={(fields, notes) => aiRewrite('experience', fields, notes)}
+              onSaveAll={async (next) => { await persistSettings({ experience: next }); flash('Experience updated.') }}
+              onError={(m) => flash(m)}
+            />
+          )}
+
+          {section === 'skills' && (
+            <SkillsSection
+              categories={skills}
+              aiOrganize={(notes) => aiRewrite('skills', {}, notes)}
+              onSaveAll={async (next) => { await persistSettings({ skills: next }); flash('Skills updated.') }}
+              onError={(m) => flash(m)}
+            />
+          )}
+
+          {section === 'projects' && (
+            <ProjectsSection
+              projects={projects}
+              api={api}
+              aiRewrite={(fields, notes) => aiRewrite('project', fields, notes)}
+              reload={async () => { await loadProjects() }}
+              onError={(m) => flash(m)}
+              notifyPortfolio={notifyPortfolio}
+            />
+          )}
+
+          {section === 'documents' && (
+            <DocumentsSection
+              api={api}
+              documents={documents}
+              ragDocs={ragDocs}
+              projects={projects}
+              reload={async () => { await loadAll() }}
+              onError={(m) => flash(m)}
+            />
+          )}
+        </main>
+      </div>
+
+      {toast && <div className="cms-toast">{toast}</div>}
+    </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Overview
+══════════════════════════════════════════════ */
+const STAT_ICONS: Record<string, string> = {
+  experience: 'M20 7H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2zM16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2',
+  skills:     'M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z',
+  projects:   'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
+  documents:  'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6',
+}
+
+function OverviewSection(props: {
+  openToWork: boolean
+  counts: { experience: number; skills: number; projects: number; documents: number }
+  adminToken: string
+  onToken: (v: string) => void
+  onToggleOpenToWork: (next: boolean) => void
+  onGoto: (s: SectionId) => void
+}) {
+  const cards: Array<{ id: SectionId; label: string; value: number }> = [
+    { id: 'experience', label: 'Experience',   value: props.counts.experience },
+    { id: 'skills',     label: 'Skill groups', value: props.counts.skills },
+    { id: 'projects',   label: 'Projects',     value: props.counts.projects },
+    { id: 'documents',  label: 'Indexed docs', value: props.counts.documents },
+  ]
+  return (
+    <>
+      <SectionHead title="Overview" sub="Snapshot of your portfolio content and availability." />
+
+      <div className="cms-stat-grid">
+        {cards.map(c => (
+          <button className="cms-stat" key={c.id} onClick={() => props.onGoto(c.id)} type="button">
+            <div style={{ color: 'var(--muted)', marginBottom: '0.4rem' }}>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d={STAT_ICONS[c.id]} />
+              </svg>
+            </div>
+            <span className="cms-stat-value">{c.value}</span>
+            <span className="cms-stat-label">{c.label}</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="cms-card">
+        <div className="cms-card-head">
+          <div>
+            <h3 className="cms-card-title">Availability</h3>
+            <p className="cms-card-desc">Shows the "Open to work" badge across the public site.</p>
+          </div>
+          <button
+            className={`switch-button${props.openToWork ? ' on' : ''}`}
+            onClick={() => props.onToggleOpenToWork(!props.openToWork)}
+            type="button"
+          >
+            <span />
+          </button>
+        </div>
+      </div>
+
+      <div className="cms-card">
+        <h3 className="cms-card-title">Access</h3>
+        <p className="cms-card-desc" style={{ marginBottom: '1rem' }}>
+          If <code>ADMIN_TOKEN</code> is set on the API, enter the same value to authorize edits. Stored only in this browser.
+        </p>
+        <label className="field-label">
+          Admin token
+          <input
+            className="field-input"
+            onChange={e => props.onToken(e.target.value)}
+            placeholder="X-Admin-Token"
+            type="password"
+            value={props.adminToken}
+          />
+        </label>
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Profile
+══════════════════════════════════════════════ */
+function ProfileSection(props: {
+  values: { name: string; headline: string; eyebrow: string; about: string; location: string; currentLocation: string; desiredLocations: string }
+  set: {
+    setName: (v: string) => void; setHeadline: (v: string) => void; setEyebrow: (v: string) => void
+    setAbout: (v: string) => void; setLocation: (v: string) => void; setCurrentLocation: (v: string) => void; setDesiredLocations: (v: string) => void
+  }
+  openToWork: boolean
+  onToggleOpenToWork: (next: boolean) => Promise<void>
+  onPolishAbout: (notes: string) => Promise<string>
+  onSave: () => Promise<void>
+  onError: (m: string) => void
+}) {
+  const { values, set } = props
+  const [saving, setSaving]       = useState(false)
+  const [polishing, setPolishing] = useState(false)
+  const [togglingOtw, setTogglingOtw] = useState(false)
+
+  async function polish() {
+    if (!values.about.trim()) { props.onError('Write a few notes in About first.'); return }
+    setPolishing(true)
+    try { set.setAbout(await props.onPolishAbout(values.about)) }
+    catch (e) { props.onError(e instanceof Error ? e.message : 'AI polish failed.') }
+    finally { setPolishing(false) }
+  }
+  async function save() {
+    setSaving(true)
+    try { await props.onSave() } catch (e) { props.onError(e instanceof Error ? e.message : 'Save failed.') } finally { setSaving(false) }
+  }
+  async function toggleOtw() {
+    setTogglingOtw(true)
+    try { await props.onToggleOpenToWork(!props.openToWork) }
+    catch (e) { props.onError(e instanceof Error ? e.message : 'Save failed.') }
+    finally { setTogglingOtw(false) }
+  }
+
+  return (
+    <>
+      <SectionHead title="Profile" sub="Your name, headline, and the hero copy on the public site." />
+
+      {/* Live preview card */}
+      <div className="cms-card" style={{ marginBottom: '1rem', background: 'var(--bg)', borderStyle: 'dashed' }}>
+        <span className="preview-label">Live preview — hero section</span>
+        <p style={{ fontFamily: 'DM Mono,monospace', fontSize: '0.62rem', letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--muted)', marginBottom: '0.6rem' }}>
+          {values.eyebrow || 'AI Systems · Production ML · Applied Research'}
+        </p>
+        <h2 style={{ fontFamily: "'DM Serif Display',Georgia,serif", fontSize: 'clamp(1.8rem,4vw,2.8rem)', fontWeight: 400, letterSpacing: '-0.03em', color: 'var(--ink)', lineHeight: 1.05, marginBottom: '0.5rem' }}>
+          {values.name || 'Your Name'}
+        </h2>
+        <p style={{ fontSize: '0.95rem', color: 'var(--muted)', marginBottom: '0.6rem' }}>{values.headline || 'Your headline'}</p>
+        {values.about && <p style={{ fontSize: '0.875rem', color: 'var(--ink-2)', lineHeight: 1.75, maxWidth: '52ch' }}>{values.about}</p>}
+      </div>
+
+      {/* Availability toggle */}
+      <div className="cms-card" style={{ marginBottom: '1rem' }}>
+        <div className="cms-card-head">
+          <div>
+            <h3 className="cms-card-title">Availability</h3>
+            <p className="cms-card-desc">Shows the "Open to work" badge across the public site.</p>
+          </div>
+          <button className={`switch-button${props.openToWork ? ' on' : ''}`} disabled={togglingOtw} onClick={toggleOtw} type="button">
+            <span />
+          </button>
+        </div>
+      </div>
+
+      <div className="cms-card">
+        <div className="form-grid">
+          <label className="field-label">Name
+            <input className="field-input" onChange={e => set.setName(e.target.value)} value={values.name} />
+          </label>
+          <label className="field-label">Headline
+            <input className="field-input" onChange={e => set.setHeadline(e.target.value)} value={values.headline} />
+          </label>
+          <label className="field-label" style={{ gridColumn: '1 / -1' }}>Hero eyebrow
+            <input className="field-input" onChange={e => set.setEyebrow(e.target.value)} value={values.eyebrow} />
+          </label>
+          <label className="field-label">Profile location
+            <input className="field-input" onChange={e => set.setLocation(e.target.value)} value={values.location} />
+          </label>
+          <label className="field-label">Current location
+            <input className="field-input" onChange={e => set.setCurrentLocation(e.target.value)} value={values.currentLocation} />
+          </label>
+          <label className="field-label" style={{ gridColumn: '1 / -1' }}>Desired locations (comma-separated)
+            <input className="field-input" onChange={e => set.setDesiredLocations(e.target.value)} placeholder="Remote, San Francisco, Bengaluru" value={values.desiredLocations} />
+          </label>
+          <label className="field-label" style={{ gridColumn: '1 / -1' }}>
+            <span className="field-label-row">
+              About
+              <button className="btn-ai-sm" disabled={polishing} onClick={polish} type="button">
+                <Icon path={SPARKLE} size={12} />
+                {polishing ? 'Polishing…' : 'Polish with AI'}
+              </button>
+            </span>
+            <textarea className="field-input" onChange={e => set.setAbout(e.target.value)} rows={4} value={values.about} />
+          </label>
+        </div>
+        <div className="cms-actions">
+          <button className="btn-admin" disabled={saving} onClick={save} type="button">
+            {saving ? 'Saving…' : 'Save profile'}
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Experience
+══════════════════════════════════════════════ */
+type ExpDraft = { company: string; role: string; dateRange: string; summary: string; items: string; highlights: string; notes: string }
+const EMPTY_EXP: ExpDraft = { company: '', role: '', dateRange: '', summary: '', items: '', highlights: '', notes: '' }
+
+function ExperienceSection(props: {
+  items: ExperienceItem[]
+  aiRewrite: (fields: Record<string, unknown>, notes: string) => Promise<any>
+  onSaveAll: (next: ExperienceItem[]) => Promise<void>
+  onError: (m: string) => void
+}) {
+  const [editorIndex, setEditorIndex] = useState<number | 'new' | null>(null)
+  const [draft, setDraft]             = useState<ExpDraft>(EMPTY_EXP)
+  const [rewriting, setRewriting]     = useState(false)
+  const [saving, setSaving]           = useState(false)
+
+  function openNew()           { setDraft(EMPTY_EXP); setEditorIndex('new') }
+  function openEdit(index: number) {
+    const item = props.items[index]
+    setDraft({
+      company: item.company || '', role: item.role || '', dateRange: item.dateRange || '',
+      summary: item.summary || '', items: (item.items || []).join('\n'),
+      highlights: (item.highlights || []).join('\n'), notes: '',
+    })
+    setEditorIndex(index)
+  }
+  function close() { setEditorIndex(null); setDraft(EMPTY_EXP) }
+
+  async function rewrite() {
+    setRewriting(true)
+    try {
+      const d = await props.aiRewrite({ company: draft.company, role: draft.role, dateRange: draft.dateRange }, draft.notes)
+      setDraft(prev => ({
+        ...prev,
+        company:    d.company    || prev.company,
+        role:       d.role       || prev.role,
+        dateRange:  d.dateRange  || prev.dateRange,
+        summary:    d.summary    || prev.summary,
+        items:      (d.items     || []).join('\n'),
+        highlights: (d.highlights || []).join('\n'),
+      }))
+    } catch (e) { props.onError(e instanceof Error ? e.message : 'AI rewrite failed.') }
+    finally { setRewriting(false) }
+  }
+
+  async function publish() {
+    if (!draft.company.trim()) { props.onError('Company is required.'); return }
+    const entry: ExperienceItem = {
+      company: draft.company.trim(), role: draft.role.trim() || undefined,
+      dateRange: draft.dateRange.trim() || undefined, summary: draft.summary.trim() || undefined,
+      items: splitLines(draft.items), highlights: splitLines(draft.highlights),
+    }
+    const next = [...props.items]
+    if (editorIndex === 'new') next.push(entry)
+    else if (typeof editorIndex === 'number') next[editorIndex] = entry
+    setSaving(true)
+    try { await props.onSaveAll(next); close() }
+    catch (e) { props.onError(e instanceof Error ? e.message : 'Save failed.') }
+    finally { setSaving(false) }
+  }
+
+  async function remove(index: number) {
+    if (!confirm('Delete this experience entry?')) return
+    const next = props.items.filter((_, i) => i !== index)
+    try { await props.onSaveAll(next) } catch (e) { props.onError(e instanceof Error ? e.message : 'Delete failed.') }
+  }
+
+  return (
+    <>
+      <SectionHead
+        title="Experience"
+        sub="Add roles with rough notes — AI drafts polished bullets, then you review before publishing."
+        action={<button className="btn-admin" onClick={openNew} type="button">+ Add experience</button>}
+      />
+
+      {editorIndex !== null && (
+        <div className="cms-card cms-editor">
+          <h3 className="cms-card-title">{editorIndex === 'new' ? 'New experience' : 'Edit experience'}</h3>
+          <div className="form-grid">
+            <label className="field-label">Company
+              <input className="field-input" onChange={e => setDraft({ ...draft, company: e.target.value })} value={draft.company} />
+            </label>
+            <label className="field-label">Role / title
+              <input className="field-input" onChange={e => setDraft({ ...draft, role: e.target.value })} value={draft.role} />
+            </label>
+            <label className="field-label">Dates
+              <input className="field-input" onChange={e => setDraft({ ...draft, dateRange: e.target.value })} placeholder="Jan 2023 - Present" value={draft.dateRange} />
+            </label>
+          </div>
+
+          <div className="ai-box">
+            <div className="ai-box-head">
+              <span className="ai-box-title"><Icon path={SPARKLE} /> Draft with AI</span>
+              <span className="ai-box-hint">Jot rough notes — what you built, tools, impact. AI turns them into clean bullets.</span>
+            </div>
+            <textarea
+              className="field-input"
+              onChange={e => setDraft({ ...draft, notes: e.target.value })}
+              placeholder="e.g. built carevio chatbot with fastapi + langgraph, ran sentiment analysis on call recordings, set up rag…"
+              rows={3}
+              value={draft.notes}
+            />
+            <button className="btn-ai" disabled={rewriting} onClick={rewrite} type="button">
+              <Icon path={SPARKLE} />{rewriting ? 'Generating…' : 'Rewrite with AI'}
+            </button>
+          </div>
+
+          <p className="cms-preview-label">Preview — edit anything before publishing</p>
+          <div className="form-grid">
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>Summary
+              <textarea className="field-input" onChange={e => setDraft({ ...draft, summary: e.target.value })} rows={2} value={draft.summary} />
+            </label>
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>Workstreams / projects (one per line)
+              <textarea className="field-input" onChange={e => setDraft({ ...draft, items: e.target.value })} rows={3} value={draft.items} />
+            </label>
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>Highlights (one per line)
+              <textarea className="field-input" onChange={e => setDraft({ ...draft, highlights: e.target.value })} rows={4} value={draft.highlights} />
+            </label>
+          </div>
+          <div className="cms-actions">
+            <button className="btn-admin" disabled={saving} onClick={publish} type="button">{saving ? 'Publishing…' : 'Publish'}</button>
+            <button className="btn-admin-outline" onClick={close} type="button">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {props.items.map((item, index) => (
+          <div className="preview-wrap" key={`${item.company}-${index}`}>
+            <article className="experience-item" style={{ position: 'relative' }}>
+              <div className="exp-left">
+                <p className="exp-date">{item.dateRange ?? '—'}</p>
+                <p className="exp-company">{item.company}</p>
+              </div>
+              <div className="exp-right">
+                <h3 className="exp-role">{item.role || item.company}</h3>
+                {item.summary && <p className="exp-summary">{item.summary}</p>}
+                <ul className="exp-items">
+                  {item.items.slice(0, 4).map(w => <li key={w}>{w}</li>)}
+                </ul>
+                {item.highlights.length > 0 && <p className="exp-highlight">{item.highlights[0]}</p>}
+              </div>
+            </article>
+            <div className="preview-actions">
+              <button className="btn-admin-outline btn-xs" onClick={() => openEdit(index)} type="button">Edit</button>
+              <button className="btn-danger btn-xs" onClick={() => remove(index)} type="button">Delete</button>
+            </div>
+          </div>
+        ))}
+        {props.items.length === 0 && editorIndex === null && <EmptyState text="No experience yet. Add your first role." />}
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Skills
+══════════════════════════════════════════════ */
+function SkillsSection(props: {
+  categories: SkillCategory[]
+  aiOrganize: (notes: string) => Promise<any>
+  onSaveAll: (next: SkillCategory[]) => Promise<void>
+  onError: (m: string) => void
+}) {
+  const [draft, setDraft]         = useState<SkillCategory[]>(props.categories)
+  const [raw, setRaw]             = useState('')
+  const [organizing, setOrganizing] = useState(false)
+  const [saving, setSaving]       = useState(false)
+  useEffect(() => { setDraft(props.categories) }, [props.categories])
+
+  async function organize() {
+    if (!raw.trim()) { props.onError('Paste some skills first.'); return }
+    setOrganizing(true)
+    try {
+      const d = await props.aiOrganize(raw)
+      if (Array.isArray(d.skills) && d.skills.length) setDraft(d.skills)
+      else props.onError('AI returned no categories.')
+    } catch (e) { props.onError(e instanceof Error ? e.message : 'AI organize failed.') }
+    finally { setOrganizing(false) }
+  }
+  function update(i: number, patch: Partial<SkillCategory>) { setDraft(draft.map((c, idx) => idx === i ? { ...c, ...patch } : c)) }
+  function removeCat(i: number) { setDraft(draft.filter((_, idx) => idx !== i)) }
+  function addCat() { setDraft([...draft, { category: '', items: [] }]) }
+  async function save() {
+    setSaving(true)
+    try { await props.onSaveAll(draft.filter(c => c.category.trim())) }
+    catch (e) { props.onError(e instanceof Error ? e.message : 'Save failed.') }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <>
+      <SectionHead
+        title="Skills"
+        sub="Paste a messy list and let AI group it, or edit categories by hand."
+        action={<button className="btn-admin-outline" onClick={addCat} type="button">+ Category</button>}
+      />
+
+      {draft.filter(c => c.category.trim()).length > 0 && (
+        <div className="cms-card" style={{ marginBottom: '1rem' }}>
+          <span className="preview-label">Live preview — how skills appear on the portfolio</span>
+          <div className="skills-table">
+            {draft.filter(c => c.category.trim()).map((cat, i) => (
+              <div className="skill-row" key={i}>
+                <span className="skill-cat-label">{cat.category}</span>
+                <div className="skill-chips">
+                  {cat.items.slice(0, 12).map(item => <span className="chip" key={item}>{item}</span>)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="cms-card">
+        <div className="ai-box">
+          <div className="ai-box-head">
+            <span className="ai-box-title"><Icon path={SPARKLE} /> Organize with AI</span>
+            <span className="ai-box-hint">Paste raw skills (commas, lines, whatever). AI groups and cleans them.</span>
+          </div>
+          <textarea
+            className="field-input"
+            onChange={e => setRaw(e.target.value)}
+            placeholder="python, fastapi, postgres, pgvector, react, docker, aws, langgraph, whisper…"
+            rows={3}
+            value={raw}
+          />
+          <button className="btn-ai" disabled={organizing} onClick={organize} type="button">
+            <Icon path={SPARKLE} />{organizing ? 'Organizing…' : 'Organize with AI'}
+          </button>
+        </div>
+
+        <div className="skill-edit-list">
+          {draft.map((cat, i) => (
+            <div className="skill-edit-row" key={i}>
+              <input className="field-input skill-cat-input" onChange={e => update(i, { category: e.target.value })} placeholder="Category" value={cat.category} />
+              <input className="field-input" onChange={e => update(i, { items: splitList(e.target.value) })} placeholder="comma, separated, skills" value={cat.items.join(', ')} />
+              <button className="btn-danger btn-xs" onClick={() => removeCat(i)} type="button">✕</button>
+            </div>
+          ))}
+          {draft.length === 0 && <EmptyState text="No skill categories yet." />}
+        </div>
+        <div className="cms-actions">
+          <button className="btn-admin" disabled={saving} onClick={save} type="button">{saving ? 'Saving…' : 'Save skills'}</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Projects
+══════════════════════════════════════════════ */
+type ProjDraft = { id: string | null; title: string; summary: string; techStack: string; whatItDoes: string; isVisible: boolean; sortOrder: string; notes: string }
+const EMPTY_PROJ: ProjDraft = { id: null, title: '', summary: '', techStack: '', whatItDoes: '', isVisible: true, sortOrder: '0', notes: '' }
+
+function ProjectsSection(props: {
+  projects: AdminProject[]
+  api: <T>(path: string, init?: RequestInit) => Promise<T>
+  aiRewrite: (fields: Record<string, unknown>, notes: string) => Promise<any>
+  reload: () => Promise<void>
+  onError: (m: string) => void
+  notifyPortfolio?: () => void
+}) {
+  const [editing, setEditing]     = useState(false)
+  const [draft, setDraft]         = useState<ProjDraft>(EMPTY_PROJ)
+  const [rewriting, setRewriting] = useState(false)
+  const [saving, setSaving]       = useState(false)
+
+  function openNew() { setDraft(EMPTY_PROJ); setEditing(true) }
+  function openEdit(p: AdminProject) {
+    setDraft({
+      id: p.id, title: p.title, summary: p.summary, techStack: p.techStack.join(', '),
+      whatItDoes: (p.whatItDoes || []).join('\n'), isVisible: p.isVisible !== false,
+      sortOrder: String(p.sortOrder ?? 0), notes: '',
+    })
+    setEditing(true)
+  }
+  function close() { setEditing(false); setDraft(EMPTY_PROJ) }
+
+  async function rewrite() {
+    setRewriting(true)
+    try {
+      const d = await props.aiRewrite({ title: draft.title, techStack: splitList(draft.techStack) }, draft.notes)
+      setDraft(prev => ({
+        ...prev,
+        title: d.title || prev.title, summary: d.summary || prev.summary,
+        techStack: (d.techStack || []).join(', '), whatItDoes: (d.whatItDoes || []).join('\n'),
+      }))
+    } catch (e) { props.onError(e instanceof Error ? e.message : 'AI rewrite failed.') }
+    finally { setRewriting(false) }
+  }
+
+  async function publish() {
+    if (!draft.title.trim()) { props.onError('Title is required.'); return }
+    const body = JSON.stringify({
+      title: draft.title.trim(), summary: draft.summary.trim() || draft.title.trim(),
+      tech_stack: splitList(draft.techStack), what_it_does: splitLines(draft.whatItDoes),
+      is_visible: draft.isVisible, source_path: 'Admin', sort_order: Number(draft.sortOrder) || 0,
+    })
+    setSaving(true)
+    try {
+      if (draft.id) await props.api(`/admin/projects/${draft.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body })
+      else await props.api('/admin/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+      await props.reload(); props.notifyPortfolio?.(); close()
+    } catch (e) { props.onError(e instanceof Error ? e.message : 'Save failed.') }
+    finally { setSaving(false) }
+  }
+
+  async function remove(id: string) {
+    if (!confirm('Delete this project?')) return
+    try {
+      await props.api(`/admin/projects/${id}`, { method: 'DELETE' })
+      await props.reload()
+      props.notifyPortfolio?.()
+    } catch (e) { props.onError(e instanceof Error ? e.message : 'Delete failed.') }
+  }
+
+  async function reorder(projectId: string, direction: 'up' | 'down') {
+    const sorted = [...props.projects]
+      .filter(p => !p.isReadOnly)
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+    const idx = sorted.findIndex(p => p.id === projectId)
+    if (idx === -1) return
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (swapIdx < 0 || swapIdx >= sorted.length) return
+    const curr = sorted[idx]
+    const swap = sorted[swapIdx]
+    const makeBody = (p: AdminProject, order: number) => JSON.stringify({
+      title: p.title, summary: p.summary || p.title,
+      tech_stack: p.techStack, what_it_does: p.whatItDoes || [],
+      is_visible: p.isVisible !== false, source_path: p.sourcePath || 'Admin',
+      sort_order: order,
+    })
+    try {
+      await Promise.all([
+        props.api(`/admin/projects/${curr.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: makeBody(curr, swap.sortOrder ?? swapIdx) }),
+        props.api(`/admin/projects/${swap.id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: makeBody(swap, curr.sortOrder ?? idx) }),
+      ])
+      await props.reload()
+      props.notifyPortfolio?.()
+    } catch (e) { props.onError(e instanceof Error ? e.message : 'Reorder failed.') }
+  }
+
+  // Build sorted display list: editable sorted by sortOrder first, seed projects appended
+  const editableDisplay = [...props.projects]
+    .filter(p => !p.isReadOnly)
+    .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+  const seedDisplay = props.projects.filter(p => p.isReadOnly)
+  const sortedDisplay = [...editableDisplay, ...seedDisplay]
+
+  return (
+    <>
+      <SectionHead
+        title="Projects"
+        sub="Project cards shown on the public site. Draft them from notes with AI."
+        action={<button className="btn-admin" onClick={openNew} type="button">+ Add project</button>}
+      />
+
+      {editing && (
+        <div className="cms-card cms-editor">
+          <h3 className="cms-card-title">{draft.id ? 'Edit project' : 'New project'}</h3>
+          {draft.id && props.projects.find(p => p.id === draft.id)?.isReadOnly && (
+            <p style={{ fontSize: '0.82rem', color: 'var(--muted)', marginTop: '-0.5rem', marginBottom: '0.75rem' }}>
+              This is a seed project from a markdown file. Saving will add it to your database so you can edit or delete it freely.
+            </p>
+          )}
+          <div className="form-grid">
+            <label className="field-label">Title
+              <input className="field-input" onChange={e => setDraft({ ...draft, title: e.target.value })} value={draft.title} />
+            </label>
+            <label className="field-label">Sort order
+              <input className="field-input" onChange={e => setDraft({ ...draft, sortOrder: e.target.value })} type="number" value={draft.sortOrder} />
+            </label>
+          </div>
+          <div className="ai-box">
+            <div className="ai-box-head">
+              <span className="ai-box-title"><Icon path={SPARKLE} /> Draft with AI</span>
+              <span className="ai-box-hint">Describe the project loosely; AI writes the summary, capabilities, and tech stack.</span>
+            </div>
+            <textarea
+              className="field-input"
+              onChange={e => setDraft({ ...draft, notes: e.target.value })}
+              placeholder="what the project is, what it does, the stack…"
+              rows={3}
+              value={draft.notes}
+            />
+            <button className="btn-ai" disabled={rewriting} onClick={rewrite} type="button">
+              <Icon path={SPARKLE} />{rewriting ? 'Generating…' : 'Rewrite with AI'}
+            </button>
+          </div>
+          <p className="cms-preview-label">Preview — edit before publishing</p>
+          <div className="form-grid">
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>Summary
+              <textarea className="field-input" onChange={e => setDraft({ ...draft, summary: e.target.value })} rows={2} value={draft.summary} />
+            </label>
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>Tech stack (comma-separated)
+              <input className="field-input" onChange={e => setDraft({ ...draft, techStack: e.target.value })} value={draft.techStack} />
+            </label>
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>What it does (one per line)
+              <textarea className="field-input" onChange={e => setDraft({ ...draft, whatItDoes: e.target.value })} rows={4} value={draft.whatItDoes} />
+            </label>
+            <label className="checkbox-row" style={{ gridColumn: '1 / -1' }}>
+              <input checked={draft.isVisible} onChange={e => setDraft({ ...draft, isVisible: e.target.checked })} type="checkbox" />
+              Visible on portfolio
+            </label>
+          </div>
+          <div className="cms-actions">
+            <button className="btn-admin" disabled={saving} onClick={publish} type="button">{saving ? 'Publishing…' : 'Publish'}</button>
+            <button className="btn-admin-outline" onClick={close} type="button">Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div className="project-bento">
+        {sortedDisplay.map(p => {
+          const editIdx = editableDisplay.findIndex(ep => ep.id === p.id)
+          return (
+            <div className="preview-wrap" key={p.id}>
+              <div className={`project-card preview-card${p.isVisible === false ? ' is-hidden' : ''}`}>
+                <span className="project-card-tag" style={{ opacity: p.isReadOnly ? 0.65 : 1 }}>
+                  {p.isReadOnly ? 'Seed' : (p.isVisible === false ? 'Hidden' : 'Live')}
+                </span>
+                <h3>{p.title}</h3>
+                <p>{p.summary}</p>
+                {p.techStack.length > 0 && (
+                  <div className="tech-pills">
+                    {p.techStack.slice(0, 5).map(t => <span className="tech-pill" key={t}>{t}</span>)}
+                  </div>
+                )}
+              </div>
+              <div className="preview-actions">
+                {!p.isReadOnly && (
+                  <>
+                    <button
+                      className="btn-icon"
+                      disabled={editIdx === 0}
+                      onClick={() => reorder(p.id, 'up')}
+                      title="Move up"
+                      type="button"
+                    >↑</button>
+                    <button
+                      className="btn-icon"
+                      disabled={editIdx === editableDisplay.length - 1}
+                      onClick={() => reorder(p.id, 'down')}
+                      title="Move down"
+                      type="button"
+                    >↓</button>
+                  </>
+                )}
+                <button className="btn-admin-outline btn-xs" onClick={() => openEdit(p)} type="button">Edit</button>
+                {!p.isReadOnly && (
+                  <button className="btn-danger btn-xs" onClick={() => remove(p.id)} type="button">Delete</button>
+                )}
+              </div>
+            </div>
+          )
+        })}
+        {props.projects.length === 0 && !editing && (
+          <div style={{ gridColumn: '1/-1' }}>
+            <EmptyState text="No projects yet. Add your first project or upload a document." />
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Documents
+══════════════════════════════════════════════ */
+function DocumentsSection(props: {
+  api: <T>(path: string, init?: RequestInit) => Promise<T>
+  documents: DocumentSummary[]
+  ragDocs: RagDocument[]
+  projects: AdminProject[]
+  reload: () => Promise<void>
+  onError: (m: string) => void
+}) {
+  const [uploading, setUploading]   = useState(false)
+  const [status, setStatus]         = useState<string | null>(null)
+  const [makeProject, setMakeProject] = useState(false)
 
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
-    const formData = new FormData(form)
-    const file = formData.get('file') as File | null
-    const logicalKey = String(formData.get('logical_document_key') || '').trim()
-    const sourceLabel = String(formData.get('source_label') || '').trim()
-    const ingestNow = formData.get('ingest_now') === 'on'
-
-    if (!file || !logicalKey) { setUploadStatus('Choose a file and document key first.'); return }
-
+    const fd   = new FormData(form)
+    const file = fd.get('file') as File | null
+    const key  = String(fd.get('logical_document_key') || '').trim()
+    if (!file || !key) { setStatus('Choose a file and a document key.'); return }
     const payload = new FormData()
     payload.append('file', file)
-    payload.append('logical_document_key', logicalKey)
-    payload.append('source_label', sourceLabel)
-    payload.append('ingest_now', String(ingestNow))
-    if (createProjectFromUpload) {
+    payload.append('logical_document_key', key)
+    payload.append('source_label', String(fd.get('source_label') || '').trim())
+    payload.append('ingest_now', String(fd.get('ingest_now') === 'on'))
+    if (makeProject) {
       payload.append('create_project', 'true')
-      if (uploadProjectId.trim())      payload.append('project_id', uploadProjectId.trim())
-      if (uploadProjectTitle.trim())   payload.append('project_title', uploadProjectTitle.trim())
-      payload.append('project_sort_order', String(Number(uploadProjectSortOrder) || 0))
-      if (uploadProjectSourcePath.trim()) payload.append('project_source_path', uploadProjectSourcePath.trim())
+      const t = String(fd.get('project_title') || '').trim()
+      if (t) payload.append('project_title', t)
     }
-
+    setUploading(true); setStatus('Uploading and indexing…')
     try {
-      setUploading(true)
-      setUploadStatus('Uploading and indexing…')
-      const result = await fetchJson<UploadResult>('/upload', { method: 'POST', body: payload, headers: adminHeaders() })
-      const projectMsg = result.project_id ? ` · Project: ${result.project_id}` : ''
-      setUploadStatus(`Indexed ${result.logical_document_key} · ${result.chunk_count} chunks${projectMsg}`)
-      form.reset()
-      await loadPortfolio()
-      await loadProjects()
-      await loadRagDocs()
-    } catch (err) {
-      setUploadStatus(err instanceof Error ? err.message : 'Upload failed.')
-    } finally {
-      setUploading(false)
-    }
+      const r = await props.api<UploadResult>('/upload', { method: 'POST', body: payload })
+      setStatus(`Indexed ${r.logical_document_key} · ${r.chunk_count} chunks${r.project_id ? ` · project ${r.project_id}` : ''}`)
+      form.reset(); await props.reload()
+    } catch (e) { setStatus(e instanceof Error ? e.message : 'Upload failed.') }
+    finally { setUploading(false) }
   }
 
-  async function saveSettings(nextOpenToWork?: boolean, overrideLoc?: string, overrideDesired?: string) {
-    const otw = nextOpenToWork !== undefined ? nextOpenToWork : openToWork
-    const loc = overrideLoc !== undefined ? overrideLoc : currentLocation
-    const des = overrideDesired !== undefined ? overrideDesired : desiredLocations
-    setOpenToWork(otw)
-    setCurrentLocation(loc)
-    setDesiredLocations(des)
-
-    try {
-      setOpenToWorkSaving(true)
-      setSettingsStatus(null)
-      const list = des.split(',').map(s => s.trim()).filter(Boolean)
-      const result = await fetchJson<AdminSettings>('/admin/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-        body: JSON.stringify({
-          open_to_work: otw,
-          current_location: loc,
-          desired_locations: list,
-          name: profileName,
-          location: profileLocation,
-          headline: profileHeadline,
-          about: profileAbout,
-          eyebrow: profileEyebrow,
-          experience: textToExperience(experienceText),
-          skills: textToSkills(skillsText),
-        }),
-      })
-      setOpenToWork(result.open_to_work)
-      setCurrentLocation(result.current_location || 'India')
-      setDesiredLocations((result.desired_locations || []).join(', '))
-      setProfileName(result.name || profileName)
-      setProfileLocation(result.location || profileLocation)
-      setProfileHeadline(result.headline || profileHeadline)
-      setProfileEyebrow(result.eyebrow || profileEyebrow)
-      setProfileAbout(result.about || profileAbout)
-      setExperienceText(experienceToText(result.experience || textToExperience(experienceText)))
-      setSkillsText(skillsToText(result.skills || textToSkills(skillsText)))
-      await loadPortfolio()
-      setSettingsStatus('Saved portfolio content.')
-    } catch (err) {
-      setSettingsStatus(err instanceof Error ? err.message : 'Could not save portfolio content.')
-    } finally {
-      setOpenToWorkSaving(false)
-    }
+  async function activate(key: string, versionId: string) {
+    if (!confirm('Activate this version for chat retrieval?')) return
+    try { await props.api(`/admin/documents/${key}/versions/${versionId}/activate`, { method: 'PUT' }); await props.reload() }
+    catch (e) { props.onError(e instanceof Error ? e.message : 'Activate failed.') }
   }
 
-  function normalizeTechStack(value: string) {
-    return value.split(',').map(s => s.trim()).filter(Boolean).slice(0, 20)
-  }
-
-  async function createProject(event: FormEvent) {
-    event.preventDefault()
-    try {
-      setProjectsError(null)
-      await fetchJson('/admin/projects', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-        body: JSON.stringify({ 
-          title: newTitle, summary: newSummary, tech_stack: normalizeTechStack(newTechStack), 
-          what_it_does: newWhatItDoes.split('\n').filter(Boolean), is_visible: newIsVisible,
-          source_path: newSourcePath || 'Admin', sort_order: Number(newSortOrder) || 0 
-        }),
-      })
-      setNewTitle(''); setNewSummary(''); setNewTechStack(''); setNewWhatItDoes(''); setNewIsVisible(true); setNewSourcePath('Admin'); setNewSortOrder('0')
-      await loadProjects(); await loadPortfolio()
-    } catch (err) {
-      setProjectsError(err instanceof Error ? err.message : 'Could not create project.')
-    }
-  }
-
-  async function saveEdit() {
-    if (!editingId) return
-    try {
-      setProjectsError(null)
-      await fetchJson(`/admin/projects/${editingId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...adminHeaders() },
-        body: JSON.stringify({ 
-          title: editTitle, summary: editSummary, tech_stack: normalizeTechStack(editTechStack), 
-          what_it_does: editWhatItDoes.split('\n').filter(Boolean), is_visible: editIsVisible,
-          source_path: editSourcePath || 'Admin', sort_order: Number(editSortOrder) || 0 
-        }),
-      })
-      setEditingId(null)
-      await loadProjects(); await loadPortfolio()
-    } catch (err) {
-      setProjectsError(err instanceof Error ? err.message : 'Could not update project.')
-    }
-  }
-
-  async function deleteProject(projectId: string) {
-    if (!confirm('Delete this project?')) return
-    try {
-      setProjectsError(null)
-      await fetchJson(`/admin/projects/${projectId}`, { method: 'DELETE', headers: adminHeaders() })
-      if (editingId === projectId) setEditingId(null)
-      await loadProjects(); await loadPortfolio()
-    } catch (err) {
-      setProjectsError(err instanceof Error ? err.message : 'Could not delete project.')
-    }
-  }
-
-  async function activateDocumentVersion(key: string, versionId: string) {
-    if (!confirm('Activate this version in the backend? This will set it as active for chat.')) return
-    try {
-      await fetchJson(`/admin/documents/${key}/versions/${versionId}/activate`, { method: 'PUT', headers: adminHeaders() })
-      await loadPortfolio(); await loadRagDocs()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Could not activate version.')
-    }
-  }
-
-  const documents = portfolio?.documents ?? []
-  const resumeProjectTargets = useMemo(() => {
-    const titles = (portfolio as any)?.profile?.resumeProjects as string[] | undefined
-    const safeTitles = Array.isArray(titles) ? titles : []
-    const existingIds = new Set(projects.map(p => p.id))
-    return safeTitles.map(title => ({ id: slugify(title), title })).filter(item => item.id && !existingIds.has(item.id))
-  }, [portfolio, projects])
-
-  const isUploadError = uploadStatus && (uploadStatus.includes('failed') || uploadStatus.includes('Choose'))
+  const isErr = status && (status.includes('failed') || status.includes('Choose'))
 
   return (
-    <div className="admin-page-shell">
+    <>
+      <SectionHead title="Documents" sub="Feed the chatbot's knowledge base. Uploads are parsed, chunked, embedded, and indexed into pgvector." />
 
-      {/* ── Nav ── */}
-      <nav className="admin-topnav">
-        <div className="admin-nav-inner">
-          <span className="admin-nav-title">Control Center</span>
-          <a className="admin-back" href={PORTFOLIO_ORIGIN} rel="noreferrer">
-            ← Back to portfolio
-          </a>
-        </div>
-      </nav>
-
-      <main className="admin-page">
-
-        {/* ── Page header ── */}
-        <div style={{ paddingTop: '1rem', marginBottom: '0.5rem' }}>
-          <h1 style={{ fontFamily: "'DM Serif Display', Georgia, serif", fontSize: 'clamp(1.75rem, 3vw, 2.4rem)', fontWeight: 400, letterSpacing: '-0.025em', color: 'var(--ink)', marginBottom: '0.35rem' }}>
-            Admin
-          </h1>
-          <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-            Manage availability, projects, and the RAG document pipeline.
-          </p>
-        </div>
-
-        {error && <div className="error-banner">{error}</div>}
-
-        {/* ── Token ── */}
-        <div className="admin-card">
-          <h2 className="admin-card-title">Admin Token</h2>
-          <p className="admin-card-desc">
-            If <code style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.82em', background: 'var(--bg)', padding: '0.1em 0.4em', borderRadius: '4px' }}>ADMIN_TOKEN</code> is set on the API, enter the same value here.
-          </p>
-          <label className="field-label">
-            Token
-            <input
-              className="field-input"
-              onChange={e => persistToken(e.target.value)}
-              placeholder="X-Admin-Token"
-              type="password"
-              value={adminToken}
-            />
+      <div className="cms-card">
+        <h3 className="cms-card-title">Upload &amp; index</h3>
+        <p className="cms-card-desc" style={{ marginBottom: '1rem' }}>Supported formats: PDF, DOCX, TXT, Markdown.</p>
+        <form className="form-grid" onSubmit={handleUpload}>
+          <label className="field-label">File
+            <input accept=".pdf,.docx,.txt,.md,.markdown" className="field-input" name="file" required type="file" />
           </label>
-        </div>
-
-        {/* ── Availability ── */}
-        <div className="admin-card">
-          <h2 className="admin-card-title">Availability</h2>
-          <p className="admin-card-desc">Controls the profile, experience, skills, and open-to-work status shown publicly.</p>
-          <div className="switch-row" style={{ marginBottom: '1rem' }}>
-            <span className="switch-label" style={{ color: openToWork ? 'var(--accent)' : 'var(--muted)' }}>
-              {openToWork ? 'Open to work' : 'Not open to work'}
-            </span>
-            <button
-              className={`switch-button${openToWork ? ' on' : ''}`}
-              disabled={openToWorkSaving}
-              onClick={() => void saveSettings(!openToWork)}
-              type="button"
-            >
-              <span />
-            </button>
-          </div>
-          <div className="form-grid">
-            <label className="field-label">
-              Name
-              <input className="field-input" onChange={e => setProfileName(e.target.value)} type="text" value={profileName} />
+          <label className="field-label">Document key
+            <input className="field-input" name="logical_document_key" placeholder="e.g. Resume, carevio-deep-dive" required type="text" />
+          </label>
+          <label className="field-label">Source label
+            <input className="field-input" name="source_label" placeholder="optional" type="text" />
+          </label>
+          <label className="checkbox-row">
+            <input defaultChecked name="ingest_now" type="checkbox" />Index immediately
+          </label>
+          <label className="checkbox-row" style={{ gridColumn: '1 / -1' }}>
+            <input checked={makeProject} onChange={e => setMakeProject(e.target.checked)} type="checkbox" />
+            Also create a project card from this document
+          </label>
+          {makeProject && (
+            <label className="field-label" style={{ gridColumn: '1 / -1' }}>Project title override
+              <input className="field-input" name="project_title" placeholder="Leave blank to auto-extract" type="text" />
             </label>
-            <label className="field-label">
-              Profile Location
-              <input className="field-input" onChange={e => setProfileLocation(e.target.value)} type="text" value={profileLocation} />
-            </label>
-            <label className="field-label">
-              Hero eyebrow
-              <input className="field-input" onChange={e => setProfileEyebrow(e.target.value)} type="text" value={profileEyebrow} />
-            </label>
-            <label className="field-label">
-              Headline
-              <input className="field-input" onChange={e => setProfileHeadline(e.target.value)} type="text" value={profileHeadline} />
-            </label>
-            <label className="field-label" style={{ gridColumn: '1 / -1' }}>
-              About
-              <textarea className="field-input" onChange={e => setProfileAbout(e.target.value)} rows={3} value={profileAbout} />
-            </label>
-            <label className="field-label">
-              Current Location
-              <input className="field-input" onChange={e => setCurrentLocation(e.target.value)} type="text" value={currentLocation} />
-            </label>
-            <label className="field-label">
-              Desired Locations (comma-separated)
-              <input className="field-input" onChange={e => setDesiredLocations(e.target.value)} placeholder="e.g. Remote, San Francisco, New York" type="text" value={desiredLocations} />
-            </label>
-            <label className="field-label" style={{ gridColumn: '1 / -1' }}>
-              Experience
-              <textarea className="field-input" onChange={e => setExperienceText(e.target.value)} rows={8} value={experienceText} />
-            </label>
-            <label className="field-label" style={{ gridColumn: '1 / -1' }}>
-              Skills
-              <textarea className="field-input" onChange={e => setSkillsText(e.target.value)} rows={5} value={skillsText} />
-            </label>
-          </div>
-          <div className="btn-row" style={{ marginTop: '1rem' }}>
-            <button className="btn-admin" disabled={openToWorkSaving} onClick={() => void saveSettings()} type="button">
-              Save Portfolio Content
-            </button>
-          </div>
-          {settingsStatus && <p className="status-text" style={{ marginTop: '0.75rem' }}>{settingsStatus}</p>}
-        </div>
-
-        {/* ── Projects ── */}
-        <div className="admin-card">
-          <h2 className="admin-card-title">Projects</h2>
-          <p className="admin-card-desc">Add, edit, or remove project cards shown on the public portfolio.</p>
-
-          <form className="form-grid" onSubmit={createProject} style={{ marginBottom: '1.5rem' }}>
-            <label className="field-label">
-              Title
-              <input className="field-input" onChange={e => setNewTitle(e.target.value)} placeholder="Project title" required type="text" value={newTitle} />
-            </label>
-            <label className="field-label">
-              Summary
-              <input className="field-input" onChange={e => setNewSummary(e.target.value)} placeholder="What does this project do?" required type="text" value={newSummary} />
-            </label>
-            <label className="field-label">
-              Tech stack (comma-separated)
-              <input className="field-input" onChange={e => setNewTechStack(e.target.value)} placeholder="FastAPI, LangGraph, Redis, pgvector" type="text" value={newTechStack} />
-            </label>
-            <label className="field-label">
-              Source label
-              <input className="field-input" onChange={e => setNewSourcePath(e.target.value)} placeholder="Admin" type="text" value={newSourcePath} />
-            </label>
-            <label className="field-label">
-              Sort order
-              <input className="field-input" onChange={e => setNewSortOrder(e.target.value)} placeholder="0" type="number" value={newSortOrder} style={{ width: '120px' }} />
-            </label>
-            <label className="field-label" style={{ gridColumn: '1 / -1' }}>
-              What it does (one point per line)
-              <textarea className="field-input" onChange={e => setNewWhatItDoes(e.target.value)} rows={3} value={newWhatItDoes} />
-            </label>
-            <label className="checkbox-row" style={{ gridColumn: '1 / -1' }}>
-              <input checked={newIsVisible} onChange={e => setNewIsVisible(e.target.checked)} type="checkbox" />
-              Visible on portfolio
-            </label>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <button className="btn-admin" type="submit">Add Project</button>
-            </div>
-          </form>
-
-          {projectsLoading && <p className="status-text">Loading projects…</p>}
-          {projectsError && <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.78rem', color: 'var(--danger)', marginBottom: '0.75rem' }}>{projectsError}</p>}
-
-          <div className="admin-project-list">
-            {projects.map(project => (
-              <div className="admin-project-card" key={project.id}>
-                <div className="admin-proj-info">
-                  <p className="admin-proj-title">
-                    {project.title}
-                    {project.isVisible === false && <span style={{ fontSize: '0.7em', padding: '0.1em 0.4em', background: 'var(--muted)', color: 'var(--bg)', borderRadius: '4px', marginLeft: '0.5em' }}>Hidden</span>}
-                  </p>
-                  <p className="admin-proj-summary">{project.summary}</p>
-                  {project.techStack.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', marginTop: '0.5rem' }}>
-                      {project.techStack.slice(0, 6).map(tech => (
-                        <span className="chip-accent" key={tech}>{tech}</span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <div className="btn-row" style={{ flexDirection: 'column', alignItems: 'flex-end', flexShrink: 0 }}>
-                  <button className="btn-admin-outline" onClick={() => setEditingId(project.id)} style={{ fontSize: '0.8rem', padding: '0.45rem 0.85rem' }} type="button">
-                    Edit
-                  </button>
-                  <button className="btn-danger" onClick={() => void deleteProject(project.id)} style={{ fontSize: '0.78rem', padding: '0.4rem 0.8rem' }} type="button">
-                    Delete
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {editingProject && (
-            <div className="edit-panel">
-              <p className="edit-panel-title">Editing: {editingProject.title}</p>
-              <div className="form-grid">
-                <label className="field-label">
-                  Title
-                  <input className="field-input" onChange={e => setEditTitle(e.target.value)} type="text" value={editTitle} />
-                </label>
-                <label className="field-label">
-                  Summary
-                  <input className="field-input" onChange={e => setEditSummary(e.target.value)} type="text" value={editSummary} />
-                </label>
-                <label className="field-label">
-                  Tech stack (comma-separated)
-                  <input className="field-input" onChange={e => setEditTechStack(e.target.value)} type="text" value={editTechStack} />
-                </label>
-                <label className="field-label">
-                  Source label
-                  <input className="field-input" onChange={e => setEditSourcePath(e.target.value)} type="text" value={editSourcePath} />
-                </label>
-                <label className="field-label">
-                  Sort order
-                  <input className="field-input" onChange={e => setEditSortOrder(e.target.value)} type="number" value={editSortOrder} style={{ width: '120px' }} />
-                </label>
-                <label className="field-label" style={{ gridColumn: '1 / -1' }}>
-                  What it does (one point per line)
-                  <textarea className="field-input" onChange={e => setEditWhatItDoes(e.target.value)} rows={3} value={editWhatItDoes} />
-                </label>
-                <label className="checkbox-row" style={{ gridColumn: '1 / -1' }}>
-                  <input checked={editIsVisible} onChange={e => setEditIsVisible(e.target.checked)} type="checkbox" />
-                  Visible on portfolio
-                </label>
-                <div className="btn-row" style={{ gridColumn: '1 / -1' }}>
-                  <button className="btn-admin" onClick={() => void saveEdit()} type="button">Save changes</button>
-                  <button className="btn-admin-outline" onClick={() => setEditingId(null)} type="button">Cancel</button>
-                </div>
-              </div>
-            </div>
           )}
-        </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <button className="btn-admin" disabled={uploading} type="submit">
+              {uploading ? 'Indexing…' : 'Upload & index'}
+            </button>
+          </div>
+          {status && (
+            <div className={`admin-status${isErr ? ' error' : ' success'}`} style={{ gridColumn: '1 / -1' }}>{status}</div>
+          )}
+        </form>
+      </div>
 
-        {/* ── Upload ── */}
-        <div className="admin-card">
-          <h2 className="admin-card-title">Upload Pipeline</h2>
-          <p className="admin-card-desc">Upload and index new files into the RAG knowledge base.</p>
-          <form className="form-grid" onSubmit={handleUpload}>
-            <label className="field-label">
-              File
-              <input accept=".pdf,.docx,.txt,.md,.markdown" className="field-input" name="file" required type="file" />
-            </label>
-            <label className="field-label">
-              Logical document key
-              <input className="field-input" name="logical_document_key" placeholder="e.g. carevio-rag-deep-dive" required type="text" />
-            </label>
-            <label className="field-label">
-              Source label
-              <input className="field-input" name="source_label" placeholder="Carevio Deep Dive" type="text" />
-            </label>
-            <label className="checkbox-row">
-              <input defaultChecked name="ingest_now" type="checkbox" />
-              Index immediately after upload
-            </label>
-            <label className="checkbox-row">
-              <input checked={createProjectFromUpload} onChange={e => setCreateProjectFromUpload(e.target.checked)} type="checkbox" />
-              Create or update a project card from this upload
-            </label>
-
-            {createProjectFromUpload && (
-              <>
-                <label className="field-label">
-                  Project to update (optional)
-                  <select className="field-input" onChange={e => setUploadProjectId(e.target.value)} value={uploadProjectId}>
-                    <option value="">Create new project</option>
-                    {projects.map(p => (
-                      <option key={p.id} value={p.id}>{p.title} ({p.id})</option>
-                    ))}
-                    {resumeProjectTargets.length > 0 && (
-                      <>
-                        <option disabled value="">── Resume projects ──</option>
-                        {resumeProjectTargets.map(p => (
-                          <option key={p.id} value={p.id}>{p.title} ({p.id})</option>
-                        ))}
-                      </>
-                    )}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Project title override
-                  <input className="field-input" onChange={e => setUploadProjectTitle(e.target.value)} placeholder="Leave blank to auto-extract" type="text" value={uploadProjectTitle} />
-                </label>
-                <label className="field-label">
-                  Sort order
-                  <input className="field-input" onChange={e => setUploadProjectSortOrder(e.target.value)} style={{ width: '120px' }} type="number" value={uploadProjectSortOrder} />
-                </label>
-                <label className="field-label">
-                  Source label chip
-                  <input className="field-input" onChange={e => setUploadProjectSourcePath(e.target.value)} placeholder="Defaults to file name" type="text" value={uploadProjectSourcePath} />
-                </label>
-              </>
-            )}
-
-            <div>
-              <button className="btn-admin" disabled={uploading} type="submit">
-                {uploading ? 'Indexing…' : 'Upload & Index'}
-              </button>
+      <div className="cms-card">
+        <h3 className="cms-card-title">Active knowledge base</h3>
+        <p className="cms-card-desc">{props.ragDocs.length} active source{props.ragDocs.length === 1 ? '' : 's'} powering the chatbot.</p>
+        <div className="doc-list" style={{ marginTop: '1rem' }}>
+          {props.ragDocs.map(d => (
+            <div className="doc-card" key={`${d.logical_document_key}:${d.version_id}`}>
+              <div>
+                <p className="doc-key">{d.logical_document_key}</p>
+                <p className="doc-sub">{d.file_name || 'Unknown'} · {d.version_id.slice(0, 8)}{d.source_label ? ` · ${d.source_label}` : ''}</p>
+              </div>
+              <span className="doc-badge">{d.chunk_count} chunks</span>
             </div>
-
-            {uploadStatus && (
-              <div className={`admin-status${isUploadError ? ' error' : ' success'}`}>
-                {uploadStatus}
-              </div>
-            )}
-          </form>
+          ))}
+          {props.ragDocs.length === 0 && <EmptyState text="No active sources yet. Upload a document to get started." />}
         </div>
+      </div>
 
-        {/* ── Knowledge Base ── */}
-        <div className="admin-card">
-          <h2 className="admin-card-title">Knowledge Base</h2>
-          <p className="admin-card-desc">Indexed sources and their ingestion status.</p>
-
-          <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--muted)', marginBottom: '0.65rem' }}>
-            Active RAG Sources
-          </p>
-          {ragDocsError && <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.75rem', color: 'var(--danger)', marginBottom: '0.75rem' }}>{ragDocsError}</p>}
-          {loading && <p className="status-text">Loading…</p>}
-
-          <div className="doc-list" style={{ marginBottom: '1.5rem' }}>
-            {ragDocs.slice(0, 12).map(doc => (
-              <div className="doc-card" key={`${doc.logical_document_key}:${doc.version_id}`}>
-                <div>
-                  <p className="doc-key">{doc.logical_document_key}</p>
-                  <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.7rem', color: 'var(--faint)', marginTop: '0.15rem' }}>
-                    {doc.file_name || 'Unknown'} · {doc.version_id.slice(0, 8)}
-                    {doc.source_label ? ` · ${doc.source_label}` : ''}
-                  </p>
-                </div>
-                <div className="doc-meta">
-                  <span className="doc-badge">{doc.chunk_count} chunks</span>
-                </div>
+      <div className="cms-card">
+        <h3 className="cms-card-title">All documents &amp; versions</h3>
+        <div className="doc-list" style={{ marginTop: '1rem' }}>
+          {props.documents.map(doc => (
+            <div className="doc-card" key={doc.logical_document_key}>
+              <div>
+                <p className="doc-key">{doc.logical_document_key}</p>
+                {doc.versions.slice(0, 2).map(v => (
+                  <p className="doc-sub" key={v.version_id}>{v.file_name} · {v.status} · {v.chunk_count} chunks</p>
+                ))}
               </div>
-            ))}
-            {ragDocs.length === 0 && !ragDocsError && (
-              <p className="status-text">No active RAG documents found yet.</p>
-            )}
-          </div>
-
-          {/* Portfolio docs */}
-          <p style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--muted)', marginBottom: '0.65rem' }}>
-            Portfolio Documents
-          </p>
-          <div className="doc-list">
-            {documents.map(doc => (
-              <div className="doc-card" key={doc.logical_document_key}>
-                <div>
-                  <p className="doc-key">{doc.logical_document_key}</p>
-                  {doc.versions.slice(0, 2).map(v => (
-                    <p key={v.version_id} style={{ fontFamily: 'DM Mono, monospace', fontSize: '0.7rem', color: 'var(--faint)', marginTop: '0.15rem' }}>
-                      {v.file_name} · {v.status} · {v.chunk_count} chunks
-                    </p>
-                  ))}
-                </div>
-                <div className="doc-meta" style={{ display: 'flex', alignItems: 'center' }}>
-                  <span className={`doc-badge${doc.active_version_id ? '' : ' inactive'}`}>
-                    {doc.active_version_id ? 'Active' : 'Inactive'}
-                  </span>
-                  {!doc.active_version_id && doc.versions.length > 0 && (
-                    <button className="btn-admin-outline" onClick={() => void activateDocumentVersion(doc.logical_document_key, doc.versions[0].version_id)} style={{ fontSize: '0.65rem', padding: '0.2rem 0.5rem', marginLeft: '0.5rem' }} type="button">
-                      Activate
-                    </button>
-                  )}
-                </div>
+              <div className="doc-meta">
+                <span className={`doc-badge${doc.active_version_id ? '' : ' inactive'}`}>
+                  {doc.active_version_id ? 'Active' : 'Inactive'}
+                </span>
+                {!doc.active_version_id && doc.versions.length > 0 && (
+                  <button
+                    className="btn-admin-outline btn-xs"
+                    onClick={() => activate(doc.logical_document_key, doc.versions[0].version_id)}
+                    type="button"
+                  >
+                    Activate
+                  </button>
+                )}
               </div>
-            ))}
-            {documents.length === 0 && !loading && (
-              <p className="status-text">No documents indexed yet.</p>
-            )}
-          </div>
+            </div>
+          ))}
+          {props.documents.length === 0 && <EmptyState text="No documents indexed yet." />}
         </div>
+      </div>
+    </>
+  )
+}
 
-      </main>
+/* ──────────────────────────────────────────────
+   Shared small components
+────────────────────────────────────────────── */
+function SectionHead({ title, sub, action }: { title: string; sub: string; action?: ReactNode }) {
+  return (
+    <div className="cms-section-head">
+      <div>
+        <h2 className="cms-section-title">{title}</h2>
+        <p className="cms-section-sub">{sub}</p>
+      </div>
+      {action && <div className="cms-section-action">{action}</div>}
     </div>
   )
+}
+
+function EmptyState({ text }: { text: string }) {
+  return <div className="cms-empty">{text}</div>
 }
 
 export default AdminPage

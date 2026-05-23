@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.config import settings
 from app.models import ChatRequest, ChatResponse, DocumentSummary, DocumentVersion, HealthResponse, IngestRequest, UploadResponse
+from app.services.ai_rewrite import ai_rewrite_service
 from app.services.chat import chat_service
 from app.services.ingestion import ingestion_service
 from app.services.metadata import metadata_store
@@ -55,6 +56,12 @@ class UpdateSettingsRequest(BaseModel):
     skills: list[dict] = []
 
 
+class RewriteRequest(BaseModel):
+    kind: str
+    fields: dict = {}
+    notes: str = ""
+
+
 class UpsertProjectRequest(BaseModel):
     title: str
     summary: str
@@ -81,7 +88,7 @@ def _backfill_active_versions() -> None:
         return
     needs_backfill = False
     try:
-        primary_count = vector_store._get_collection(settings.chroma_collection_name).count()
+        primary_count = vector_store.count(settings.chroma_collection_name)
         needs_backfill = primary_count == 0 and any(item.get('active_version_id') for item in documents)
     except Exception:
         needs_backfill = any(item.get('active_version_id') for item in documents)
@@ -162,6 +169,18 @@ def update_admin_settings(request: UpdateSettingsRequest, x_admin_token: str | N
         "experience": metadata_store.get_portfolio_experience(),
         "skills": metadata_store.get_portfolio_skills(),
     }
+
+
+@app.post("/admin/ai/rewrite")
+def admin_ai_rewrite(request: RewriteRequest, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    try:
+        draft, provider = ai_rewrite_service.rewrite(request.kind, request.fields, request.notes)
+        return {"draft": draft, "provider": provider}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"AI rewrite failed: {exc}") from exc
 
 
 @app.get("/admin/projects")

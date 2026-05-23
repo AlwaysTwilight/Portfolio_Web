@@ -268,7 +268,9 @@ class PortfolioService:
             cleaned.append(
                 {
                     "company": company,
+                    "role": self._clean_line(str(item.get("role") or "")),
                     "dateRange": self._clean_line(str(item.get("dateRange") or "")),
+                    "summary": self._clean_line(str(item.get("summary") or "")),
                     "items": work_items,
                     "highlights": highlights,
                 }

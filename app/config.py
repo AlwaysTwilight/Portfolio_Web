@@ -45,7 +45,9 @@ class Settings:
     top_k: int = int(os.getenv('TOP_K', '4'))
     chroma_collection_name: str = os.getenv('CHROMA_COLLECTION_NAME', 'documents_gemini')
     chroma_space: str = os.getenv('CHROMA_SPACE', 'cosine')
+    fallback_embedding_model: str = os.getenv('FALLBACK_EMBEDDING_MODEL', 'BAAI/bge-base-en-v1.5')
     admin_token: str = os.getenv('ADMIN_TOKEN', '')
+    database_url: str = os.getenv('DATABASE_URL', '')
     mongodb_uri: str = os.getenv('MONGODB_URI', '')
     mongodb_db: str = os.getenv('MONGODB_DB', 'portfolio')
     cors_allow_origins: list[str] = field(
