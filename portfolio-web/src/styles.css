@@ -1485,8 +1485,48 @@ select.field-input { cursor: pointer; }
 .modal-stack  { display: flex; flex-wrap: wrap; gap: .42rem; }
 .modal-actions { padding: 1rem 1.75rem 1.6rem; border-top: 1px solid var(--border); }
 
+/* Chat avatar icon */
+.chat-avatar-icon {
+  width: 34px; height: 34px; border-radius: 10px;
+  background: rgba(255,255,255,.18); border: 1px solid rgba(255,255,255,.22);
+  display: grid; place-items: center; flex-shrink: 0;
+}
+
+/* Send spinner */
+.send-spinner {
+  display: block; width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.3);
+  border-top-color: rgba(255,255,255,.9);
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Meta svg icons */
+.meta-svg { flex-shrink: 0; opacity: .7; }
+
 /* ── Misc public site ── */
 .empty-state { font-size: .88rem; color: var(--muted); padding: 1.5rem 0; font-style: italic; }
+
+/* ── Light mode overrides ── */
+:root .amb-blob { opacity: .14; } /* blobs much more subtle on white */
+:root .grid-overlay { opacity: .12; } /* softer grid on white */
+
+/* Cards need surface bg in light mode so they lift off the white page */
+:root .skill-cat,
+:root .stats-card { background: var(--surface); }
+:root .projects-grid .project-card { background: var(--surface); }
+:root .timeline-body .tl-highlight { background: var(--a-lt); }
+
+/* Shine overlay: invert in light mode (dark radial on white bg) */
+:root .card-shine {
+  background: radial-gradient(circle at var(--shine-x,50%) var(--shine-y,50%), rgba(0,0,0,.03) 0%, transparent 65%);
+}
+
+/* Stats card in light mode: add a stronger border to separate from surface */
+:root .stats-card { border-color: var(--border-hi); box-shadow: var(--sh); }
+
+/* Chat panel in light mode — slightly richer surface */
+:root .chat-msg--assistant .chat-bubble { background: var(--surface); }
 
 /* ── Responsive for new layout ── */
 @media (max-width: 1020px) {

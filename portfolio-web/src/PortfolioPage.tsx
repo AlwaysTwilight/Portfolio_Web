@@ -292,7 +292,15 @@ export default function PortfolioPage() {
               aria-label="Toggle theme"
               type="button"
             >
-              {theme === 'dark' ? '☀' : '☾'}
+              {theme === 'dark' ? (
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4"/>
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              )}
             </button>
           </div>
         </div>
@@ -327,18 +335,24 @@ export default function PortfolioPage() {
 
               <div className="hero-meta">
                 <span className="meta-chip">
-                  <span className="meta-icon">📍</span>
+                  <svg className="meta-svg" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/>
+                  </svg>
                   {(profile?.currentLocation || profile?.location) ?? 'India'}
                 </span>
                 {desiredLoc.length > 0 && (
                   <span className="meta-chip">
-                    <span className="meta-icon">🌐</span>
+                    <svg className="meta-svg" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
                     Open to {desiredLoc.slice(0, 3).join(' · ')}
                   </span>
                 )}
                 {experience[0] && (
                   <span className="meta-chip">
-                    <span className="meta-icon">🏢</span>
+                    <svg className="meta-svg" viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
+                    </svg>
                     {experience[0].company}
                   </span>
                 )}
@@ -354,7 +368,9 @@ export default function PortfolioPage() {
                   onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 100) }}
                   type="button"
                 >
-                  <span className="btn-icon-left">💬</span>
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                  </svg>
                   Ask AI assistant
                 </button>
                 <button className="btn-ghost" onClick={() => scrollTo('projects')} type="button">
@@ -516,7 +532,10 @@ export default function PortfolioPage() {
               onClick={() => setChatOpen(true)}
               type="button"
             >
-              💬 Ask the AI
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+              Chat with AI
             </button>
           </div>
         </footer>
@@ -535,17 +554,23 @@ export default function PortfolioPage() {
             type="button"
           >
             <span className="fab-ring" aria-hidden />
-            <span className="fab-icon">💬</span>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="rgba(255,255,255,.95)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ position: 'relative', zIndex: 1 }}>
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
           </button>
         )}
 
         <div className={`chat-panel ${chatOpen ? 'chat-panel--open' : ''}`} role="complementary">
           <div className="chat-header">
             <div className="chat-header-info">
-              <span className="chat-avatar">🤖</span>
+              <span className="chat-avatar-icon" aria-hidden>
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="3" y="11" width="18" height="10" rx="2"/><path d="M9 11V7a3 3 0 0 1 6 0v4M9 15h.01M15 15h.01"/>
+                </svg>
+              </span>
               <div>
-                <p className="chat-title">Portfolio Assistant</p>
-                <p className="chat-subtitle">Powered by RAG · {591} chunks indexed</p>
+                <p className="chat-title">AI Assistant</p>
+                <p className="chat-subtitle">Grounded in your documents</p>
               </div>
             </div>
             <button
@@ -554,7 +579,9 @@ export default function PortfolioPage() {
               aria-label="Close chat"
               type="button"
             >
-              ✕
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+                <path d="M18 6L6 18M6 6l12 12"/>
+              </svg>
             </button>
           </div>
 
@@ -598,8 +625,15 @@ export default function PortfolioPage() {
               onClick={() => void send()}
               disabled={chatting || !chatInput.trim()}
               type="button"
+              aria-label="Send message"
             >
-              {chatting ? '⏳' : '↑'}
+              {chatting ? (
+                <span className="send-spinner" aria-hidden />
+              ) : (
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 19V5M5 12l7-7 7 7"/>
+                </svg>
+              )}
             </button>
           </div>
         </div>

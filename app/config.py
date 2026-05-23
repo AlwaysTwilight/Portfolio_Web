@@ -53,7 +53,10 @@ class Settings:
     cors_allow_origins: list[str] = field(
         default_factory=lambda: _parse_csv(os.getenv("CORS_ALLOW_ORIGINS", ""))
     )
-    cors_allow_origin_regex: str = os.getenv("CORS_ALLOW_ORIGIN_REGEX", r"https://.*\.vercel\.app")
+    cors_allow_origin_regex: str = os.getenv(
+        "CORS_ALLOW_ORIGIN_REGEX",
+        r"https://.*\.vercel\.app|http://localhost:\d+|http://127\.0\.0\.1:\d+",
+    )
 
 
 settings = Settings()
