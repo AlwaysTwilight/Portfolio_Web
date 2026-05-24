@@ -55,6 +55,43 @@ PROJECT_OVERRIDES: dict[str, dict[str, Any]] = {
     },
 }
 
+# Overrides keyed by logical_document_key (used for RAG-indexed project cards).
+KEY_OVERRIDES: dict[str, dict[str, Any]] = {
+    "carevio-chatbot": {
+        "title": "Carevio AI Chatbot Platform",
+        "summary": (
+            "An enterprise customer-service chatbot platform for myOnsite Healthcare that combines a website widget, "
+            "a FastAPI and LangGraph backend, real-time agent escalation, semantic retrieval, and an admin dashboard "
+            "for monitoring live conversations."
+        ),
+        "techStack": ["FastAPI", "LangGraph", "React", "JavaScript Widget", "ChromaDB", "Redis", "MongoDB", "Docker Compose"],
+    },
+    "crm-mcp-server": {
+        "title": "CRM MCP Server",
+        "summary": (
+            "A Model Context Protocol server that bridges AI assistants to a production MySQL CRM database, "
+            "translating natural language into SQL queries. Read-only, OAuth 2.0 authenticated, multi-tenant, and production-ready."
+        ),
+        "techStack": ["Python", "MCP Protocol", "Flask", "MySQL", "OAuth 2.0", "Docker", "Connection Pooling"],
+    },
+    "plant-disease": {
+        "title": "Plant Disease Classification System",
+        "summary": (
+            "A deep-learning pipeline that classifies plant diseases from leaf images using a CNN trained on the PlantVillage "
+            "dataset. Covers 38 disease categories across 14 plant species with a real-time inference API."
+        ),
+        "techStack": ["PyTorch", "CNN", "FastAPI", "PlantVillage Dataset", "OpenCV", "NumPy", "Docker"],
+    },
+    "sentiment-analysis": {
+        "title": "Call Center Sentiment Analysis System",
+        "summary": (
+            "A production pipeline that ingests call recordings from 3CX via S3, transcribes them with Whisper, performs "
+            "sentiment analysis and summarization using GPT-4, stores structured results in MongoDB, and surfaces insights in a dashboard."
+        ),
+        "techStack": ["Next.js", "OpenAI Whisper", "GPT-4", "AWS S3", "MongoDB", "TypeScript", "3CX Integration"],
+    },
+}
+
 
 class PortfolioService:
     def __init__(self) -> None:
@@ -287,6 +324,37 @@ class PortfolioService:
             cleaned.append({"category": category, "items": skills})
         return cleaned
 
+    def _get_rag_projects(self) -> list[dict[str, Any]]:
+        """Build project cards from all non-resume RAG-indexed documents."""
+        documents = metadata_store.list_documents()
+        projects: list[dict[str, Any]] = []
+        seen_keys: set[str] = set()
+        for doc in documents:
+            key = str(doc.get("logical_document_key") or "")
+            if not key or key.lower() == "resume" or key in seen_keys:
+                continue
+            if not doc.get("active_version_id"):
+                continue
+            seen_keys.add(key)
+            override = KEY_OVERRIDES.get(key)
+            if override:
+                title = override["title"]
+                summary = override["summary"]
+                tech_stack = list(override["techStack"])
+            else:
+                title = str(doc.get("source_label") or key).replace("-", " ").title()
+                summary = "Document indexed — upload a detailed guide to generate a richer summary."
+                tech_stack = []
+            slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
+            projects.append({
+                "id": slug,
+                "title": title,
+                "summary": summary,
+                "techStack": tech_stack,
+                "sourcePath": key,
+            })
+        return projects
+
     def get_portfolio_payload(self) -> dict[str, Any]:
         chunks = self._get_resume_chunks()
         header = self._extract_header(chunks)
@@ -303,6 +371,9 @@ class PortfolioService:
         projects = manual_projects
 
         # Backwards-compatible seed content for fresh installs (or before any admin-added projects exist).
+        # Prefer RAG-indexed documents (all 4 projects), fall back to legacy hardcoded file list.
+        if not projects:
+            projects = self._get_rag_projects()
         if not projects:
             projects = [self._project_payload(path) for path in self.project_files if path.exists()]
 

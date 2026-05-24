@@ -19,10 +19,14 @@ Rules:
 - Treat named initiatives/systems/products/workstreams listed under an organization in Experience as valid answers for \"what did Raj work on\" at that org.
 - Do not mix standalone Projects with Experience work items unless the context explicitly links them.
 - Prefer concise, direct answers that preserve dates, role names, employers, metrics, and technologies.
-- If the context is insufficient, say you do not know based on the uploaded files, EXCPET for availability/location questions which you should answer using the context below.
+- If the context is insufficient, say you do not know based on the uploaded files, EXCEPT for availability/location questions which you should answer using the context below.
+- When asked about Raj's projects in general, list ALL projects from the Portfolio Index below — never omit any.
 
 Availability & Location Context (Always True):
 {availability_context}
+
+Portfolio Index — Raj's complete list of projects (always reference all of these when asked):
+{portfolio_index}
 
 Derived hints:
 {derived_hints}
@@ -338,6 +342,13 @@ class ChatService:
         intent = self._query_intent(message)
         if not intent['wants_work_items']:
             return None
+        # Generic "what projects has Raj worked on?" — no org focus, just listing projects.
+        # Let the LLM answer from the full context + portfolio index instead of extracting work items.
+        lowered = message.lower()
+        if not focus_title and 'project' in lowered and not any(
+            kw in lowered for kw in (' at ', ' for ', ' in ', 'company', 'organization')
+        ):
+            return None
         work_items: list[str] = []
         for hit in selected_hits:
             metadata = hit['metadata']
@@ -401,6 +412,29 @@ class ChatService:
         lines.append('---\n')
         return '\n'.join(lines) + '\n'
 
+    def _build_portfolio_index(self) -> str:
+        """Return a concise bullet list of all of Raj's indexed projects for the system prompt."""
+        _KEY_NAMES: dict[str, str] = {
+            "carevio-chatbot": "Carevio AI Chatbot Platform",
+            "crm-mcp-server": "CRM MCP Server",
+            "plant-disease": "Plant Disease Classification System",
+            "sentiment-analysis": "Call Center Sentiment Analysis System",
+        }
+        try:
+            documents = metadata_store.list_documents()
+        except Exception:
+            return "Index unavailable."
+        lines: list[str] = []
+        for doc in documents:
+            key = str(doc.get("logical_document_key") or "")
+            if not key or key.lower() == "resume":
+                continue
+            if not doc.get("active_version_id"):
+                continue
+            name = _KEY_NAMES.get(key) or str(doc.get("source_label") or key).replace("-", " ").title()
+            lines.append(f"- {name}")
+        return "\n".join(lines) if lines else "No projects indexed yet."
+
     def answer(
         self,
         message: str,
@@ -412,7 +446,11 @@ class ChatService:
         normalized_message = message.strip()
         if self._is_greeting(normalized_message):
             return ChatResponse(
-                answer='Hi! Ask me anything about the files you uploaded, and I will answer from that document context.',
+                answer=(
+                    "Hi! I'm Raj's portfolio assistant. Ask me about his projects — "
+                    "Carevio AI Chatbot, CRM MCP Server, Plant Disease Classification System, or Call Center Sentiment Analysis — "
+                    "as well as his experience, skills, or background. I answer from his actual project documents."
+                ),
                 sources=[],
                 debug=[{'intent': 'greeting'}] if include_debug else None,
             )
@@ -512,6 +550,7 @@ class ChatService:
             question=normalized_message,
             today=datetime.now(timezone.utc).date().isoformat(),
             availability_context=avail_ctx,
+            portfolio_index=self._build_portfolio_index(),
             derived_hints=self._build_derived_hints(retrieval_query, [str(hit['document']) for hit in selected_hits]),
             conversation_history_section=conversation_history_section,
         )

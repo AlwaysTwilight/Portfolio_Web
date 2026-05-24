@@ -1,0 +1,496 @@
+/* ══════════════════════════════════════════════════════
+   RETRO CRT TERMINAL — styles
+   ══════════════════════════════════════════════════════ */
+
+:root {
+  --green: #00ff41;
+  --green-dim: #00b32d;
+  --green-bright: #39ff14;
+  --green-faint: rgba(0, 255, 65, 0.08);
+  --green-glow: 0 0 8px #00ff41, 0 0 20px rgba(0, 255, 65, 0.4);
+  --amber: #ffb000;
+  --bg: #020e03;
+  --panel: rgba(0, 8, 2, 0.92);
+  --border: rgba(0, 255, 65, 0.35);
+  --font: 'Courier New', Courier, monospace;
+}
+
+/* ── Fullscreen wrapper ── */
+.t3d-root {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  font-family: var(--font);
+  color: var(--green);
+  overflow: hidden;
+  z-index: 100;
+}
+
+/* ── Three.js canvas (background) ── */
+.t3d-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 0;
+}
+
+/* ── CRT scanlines overlay ── */
+.t3d-scanlines {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(0, 0, 0, 0.18) 3px,
+    rgba(0, 0, 0, 0.18) 4px
+  );
+}
+
+/* ── CRT flicker animation ── */
+@keyframes flicker {
+  0%, 100% { opacity: 1; }
+  92%       { opacity: 1; }
+  93%       { opacity: 0.92; }
+  94%       { opacity: 1; }
+  96%       { opacity: 0.95; }
+  97%       { opacity: 1; }
+}
+
+/* ── Vignette ── */
+.t3d-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.7) 100%);
+}
+
+/* ── Terminal panel ── */
+.t3d-terminal {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  animation: flicker 8s infinite;
+}
+
+.t3d-panel {
+  width: 100%;
+  max-width: 780px;
+  max-height: calc(100vh - 40px);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 0 30px rgba(0,255,65,0.15), inset 0 0 60px rgba(0,0,0,0.5);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 4px;
+}
+
+/* ── Title bar ── */
+.t3d-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(0, 255, 65, 0.05);
+  flex-shrink: 0;
+}
+
+.t3d-titlebar-label {
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--green-dim);
+}
+
+.t3d-titlebar-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.t3d-titlebar-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: block;
+}
+
+.t3d-titlebar-dots span:nth-child(1) { background: #ff5f57; }
+.t3d-titlebar-dots span:nth-child(2) { background: #ffbd2e; }
+.t3d-titlebar-dots span:nth-child(3) { background: #28c840; }
+
+/* ── Mode toggle chip (top-right corner) ── */
+.t3d-mode-toggle {
+  position: absolute;
+  top: 14px;
+  right: 20px;
+  z-index: 10;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--green-dim);
+  font-family: var(--font);
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.t3d-mode-toggle:hover {
+  border-color: var(--green);
+  color: var(--green);
+  box-shadow: var(--green-glow);
+}
+
+/* ── Scrollable body ── */
+.t3d-body {
+  flex: 1;
+  padding: 20px 24px 16px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--green-dim) transparent;
+  min-height: 0;
+}
+
+.t3d-body::-webkit-scrollbar { width: 4px; }
+.t3d-body::-webkit-scrollbar-track { background: transparent; }
+.t3d-body::-webkit-scrollbar-thumb { background: var(--green-dim); border-radius: 2px; }
+
+/* ── Prompt line (bottom) ── */
+.t3d-prompt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px 14px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.t3d-prompt-symbol {
+  color: var(--green-bright);
+  font-size: 14px;
+  text-shadow: var(--green-glow);
+  flex-shrink: 0;
+}
+
+.t3d-prompt-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--green);
+  caret-color: var(--green-bright);
+}
+
+/* ── Text styles ── */
+.t3d-line {
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.t3d-line.bright    { color: var(--green-bright); text-shadow: var(--green-glow); }
+.t3d-line.dim       { color: var(--green-dim); }
+.t3d-line.amber     { color: var(--amber); }
+.t3d-line.gap       { margin-top: 10px; }
+.t3d-line.gap-sm    { margin-top: 4px; }
+.t3d-line.center    { text-align: center; }
+.t3d-line.indent    { padding-left: 20px; }
+
+/* ── ASCII box ── */
+.t3d-box {
+  border: 1px solid var(--border);
+  padding: 12px 18px;
+  margin: 8px 0;
+  background: rgba(0, 255, 65, 0.03);
+}
+
+/* ── Menu items ── */
+.t3d-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-size: 13px;
+}
+
+.t3d-menu-item:hover .t3d-menu-key,
+.t3d-menu-item.hovered .t3d-menu-key {
+  background: var(--green);
+  color: #000;
+  box-shadow: var(--green-glow);
+}
+
+.t3d-menu-item:hover .t3d-menu-label,
+.t3d-menu-item.hovered .t3d-menu-label {
+  color: var(--green-bright);
+  text-shadow: var(--green-glow);
+}
+
+.t3d-menu-key {
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+
+.t3d-menu-label {
+  transition: all 0.15s;
+}
+
+/* ── Section header ── */
+.t3d-section-header {
+  color: var(--green-bright);
+  text-shadow: var(--green-glow);
+  margin-bottom: 14px;
+  font-size: 13px;
+  letter-spacing: 1px;
+}
+
+/* ── Progress bar ── */
+.t3d-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 3px 0;
+  font-size: 12px;
+}
+
+.t3d-bar-label {
+  width: 140px;
+  flex-shrink: 0;
+  color: var(--green-dim);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.t3d-bar-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(0,255,65,0.1);
+  border: 1px solid rgba(0,255,65,0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.t3d-bar-fill {
+  height: 100%;
+  background: var(--green-dim);
+  box-shadow: 0 0 6px var(--green);
+  transition: width 0.8s ease;
+}
+
+.t3d-bar-pct {
+  width: 36px;
+  text-align: right;
+  color: var(--green-dim);
+  flex-shrink: 0;
+}
+
+/* ── Experience entry ── */
+.t3d-exp-entry {
+  border-left: 2px solid var(--border);
+  padding-left: 14px;
+  margin-bottom: 18px;
+}
+
+.t3d-exp-company {
+  color: var(--green-bright);
+  text-shadow: var(--green-glow);
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.t3d-exp-meta {
+  color: var(--green-dim);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
+.t3d-exp-item {
+  font-size: 12px;
+  color: var(--green);
+  padding: 2px 0;
+}
+
+.t3d-exp-item::before {
+  content: '▸ ';
+  color: var(--green-dim);
+}
+
+/* ── Project card ── */
+.t3d-project-card {
+  border: 1px solid var(--border);
+  padding: 12px 16px;
+  margin-bottom: 10px;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: rgba(0,255,65,0.02);
+}
+
+.t3d-project-card:hover {
+  border-color: var(--green);
+  background: rgba(0,255,65,0.05);
+  box-shadow: 0 0 12px rgba(0,255,65,0.1);
+}
+
+.t3d-project-card .t3d-project-title {
+  color: var(--green-bright);
+  font-size: 13px;
+  font-weight: bold;
+}
+
+.t3d-project-card .t3d-project-summary {
+  color: var(--green-dim);
+  font-size: 12px;
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.t3d-project-card .t3d-project-tech {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.t3d-tag {
+  font-size: 10px;
+  border: 1px solid rgba(0,255,65,0.25);
+  padding: 1px 6px;
+  color: var(--green-dim);
+}
+
+/* ── Chat ── */
+.t3d-chat-history {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.t3d-chat-msg {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.t3d-chat-msg.user   { color: var(--amber); }
+.t3d-chat-msg.bot    { color: var(--green); }
+
+.t3d-chat-msg .t3d-chat-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  margin-bottom: 2px;
+  opacity: 0.6;
+}
+
+.t3d-chat-thinking {
+  color: var(--green-dim);
+  font-size: 12px;
+  animation: blink 1s infinite;
+}
+
+/* ── Blink ── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+.t3d-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 14px;
+  background: var(--green);
+  vertical-align: text-bottom;
+  animation: blink 0.8s infinite;
+}
+
+/* ── Back button ── */
+.t3d-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 6px 14px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--green-dim);
+  font-family: var(--font);
+  font-size: 11px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.t3d-back-btn:hover {
+  border-color: var(--green);
+  color: var(--green);
+  box-shadow: var(--green-glow);
+}
+
+/* ── Scroll to bottom anchor ── */
+.t3d-scroll-anchor { height: 1px; }
+
+/* ── Status badge ── */
+.t3d-badge {
+  display: inline-block;
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 2px 8px;
+  border: 1px solid var(--green-dim);
+  color: var(--green-dim);
+  text-transform: uppercase;
+  vertical-align: middle;
+  margin-left: 8px;
+}
+
+.t3d-badge.open {
+  border-color: var(--green-bright);
+  color: var(--green-bright);
+  box-shadow: 0 0 6px rgba(57, 255, 20, 0.4);
+  animation: pulse-badge 2s infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% { box-shadow: 0 0 6px rgba(57,255,20,0.4); }
+  50%       { box-shadow: 0 0 14px rgba(57,255,20,0.7); }
+}
+
+/* ── Boot screen ── */
+.t3d-boot-line {
+  font-size: 12px;
+  line-height: 1.9;
+  color: var(--green-dim);
+}
+
+.t3d-boot-line.ok   { color: var(--green); }
+.t3d-boot-line.warn { color: var(--amber); }
+
+/* ── Responsive ── */
+@media (max-width: 600px) {
+  .t3d-panel { max-width: 100%; border-radius: 0; border-left: none; border-right: none; }
+  .t3d-body  { padding: 14px 14px 10px; }
+  .t3d-prompt-row { padding: 8px 14px 12px; }
+  .t3d-line  { font-size: 12px; }
+}

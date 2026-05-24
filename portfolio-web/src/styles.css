@@ -1088,6 +1088,25 @@ select.field-input { cursor: pointer; }
 }
 .theme-btn:hover { color: var(--a); border-color: var(--a-md); background: var(--a-lt); }
 
+/* ── Terminal mode toggle ── */
+.terminal-mode-btn {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(0, 255, 65, 0.4);
+  background: rgba(0, 255, 65, 0.06);
+  color: #00cc33;
+  cursor: pointer;
+  transition: all 150ms;
+  font-family: 'Courier New', monospace;
+}
+.terminal-mode-btn:hover {
+  background: rgba(0, 255, 65, 0.13);
+  border-color: rgba(0, 255, 65, 0.7);
+  color: #00ff41;
+  box-shadow: 0 0 8px rgba(0, 255, 65, 0.25);
+}
+
 /* ── Hero — two-column layout ── */
 .app .hero {
   min-height: 100vh; position: relative; overflow: hidden;

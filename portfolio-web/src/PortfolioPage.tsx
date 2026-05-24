@@ -1,4 +1,6 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
+
+const Terminal3D = lazy(() => import('./Terminal3D'))
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -170,6 +172,7 @@ export default function PortfolioPage() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() =>
     (localStorage.getItem('theme') as 'dark' | 'light') ?? 'dark'
   )
+  const [terminalMode, setTerminalMode] = useState(false)
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLInputElement>(null)
 
@@ -251,6 +254,15 @@ export default function PortfolioPage() {
     'DevOps / Tools': '🔧',
   }
 
+  // ── Terminal mode short-circuit ──
+  if (terminalMode) {
+    return (
+      <Suspense fallback={<div style={{ background: '#020e03', width: '100vw', height: '100vh' }} />}>
+        <Terminal3D onExitTerminal={() => setTerminalMode(false)} />
+      </Suspense>
+    )
+  }
+
   return (
     <div className="app" data-theme={theme}>
 
@@ -286,6 +298,14 @@ export default function PortfolioPage() {
                 Open to work
               </span>
             )}
+            <button
+              className="terminal-mode-btn"
+              onClick={() => setTerminalMode(true)}
+              title="Switch to interactive terminal mode"
+              type="button"
+            >
+              <span style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 1 }}>[ TERMINAL ]</span>
+            </button>
             <button
               className="theme-btn"
               onClick={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
