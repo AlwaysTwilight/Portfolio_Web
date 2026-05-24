@@ -413,27 +413,33 @@ class ChatService:
         return '\n'.join(lines) + '\n'
 
     def _build_portfolio_index(self) -> str:
-        """Return a concise bullet list of all of Raj's indexed projects for the system prompt."""
+        """Return a bullet list of Raj's projects for the system prompt.
+        The 4 known projects are ALWAYS included regardless of indexing status,
+        so the chatbot can answer project-listing questions even on a fresh DB.
+        """
         _KEY_NAMES: dict[str, str] = {
             "carevio-chatbot": "Carevio AI Chatbot Platform",
             "crm-mcp-server": "CRM MCP Server",
             "plant-disease": "Plant Disease Classification System",
             "sentiment-analysis": "Call Center Sentiment Analysis System",
         }
+        # Always start with the known projects
+        seen_keys: set[str] = set(_KEY_NAMES.keys())
+        lines: list[str] = [f"- {name}" for name in _KEY_NAMES.values()]
+        # Append any additional docs indexed beyond the hardcoded list
         try:
             documents = metadata_store.list_documents()
+            for doc in documents:
+                key = str(doc.get("logical_document_key") or "")
+                if not key or key.lower() == "resume" or key in seen_keys:
+                    continue
+                if not doc.get("active_version_id"):
+                    continue
+                name = str(doc.get("source_label") or key).replace("-", " ").title()
+                lines.append(f"- {name}")
         except Exception:
-            return "Index unavailable."
-        lines: list[str] = []
-        for doc in documents:
-            key = str(doc.get("logical_document_key") or "")
-            if not key or key.lower() == "resume":
-                continue
-            if not doc.get("active_version_id"):
-                continue
-            name = _KEY_NAMES.get(key) or str(doc.get("source_label") or key).replace("-", " ").title()
-            lines.append(f"- {name}")
-        return "\n".join(lines) if lines else "No projects indexed yet."
+            pass
+        return "\n".join(lines)
 
     def answer(
         self,
@@ -490,12 +496,43 @@ class ChatService:
 
         selected_hits, ranked_hits, retrieval_backend, focus_title = self._retrieve_context(retrieval_query)
         if not selected_hits:
-            debug = [{'retrieval_backend': retrieval_backend}] if include_debug else []
-            return ChatResponse(
-                answer='I do not know based on the uploaded files.',
-                sources=[],
-                debug=debug if include_debug else None,
+            debug_info = [{'retrieval_backend': retrieval_backend}] if include_debug else []
+            # For questions about projects, availability, or Raj's profile, we can still answer
+            # from the always-injected portfolio index and availability context.
+            lowered_norm = normalized_message.lower()
+            profile_answerable = any(kw in lowered_norm for kw in [
+                'project', 'projects', 'open', 'available', 'availability', 'hire', 'hiring',
+                'location', 'where', 'skill', 'skills', 'experience', 'work', 'worked',
+                'year', 'years', 'month', 'months', 'how long', 'how much',
+                'raj', 'he ', 'his ', 'about', 'background', 'who is', 'who are',
+            ])
+            if not profile_answerable:
+                return ChatResponse(
+                    answer='I do not know based on the uploaded files.',
+                    sources=[],
+                    debug=debug_info if include_debug else None,
+                )
+            # Build a prompt using only the injected context (no RAG chunks)
+            open_to_work = metadata_store.get_open_to_work()
+            current_loc = metadata_store.get_current_location()
+            desired_loc = metadata_store.get_desired_locations()
+            avail_ctx = f"Raj is {'open to new work opportunities' if open_to_work else 'currently not looking for roles'}. "
+            avail_ctx += f"Current location: {current_loc}. "
+            if desired_loc:
+                avail_ctx += f"Desired locations for work: {', '.join(desired_loc)}."
+            prompt = PROMPT_TEMPLATE.format(
+                context="(No documents currently indexed — answer from the portfolio index and availability context only.)",
+                question=normalized_message,
+                today=datetime.now(timezone.utc).date().isoformat(),
+                availability_context=avail_ctx,
+                portfolio_index=self._build_portfolio_index(),
+                derived_hints='No extra derived hints.',
+                conversation_history_section=self._build_conversation_history_section(history),
             )
+            answer, provider = llm_service.generate(prompt)
+            if include_debug:
+                debug_info.append({'answer_strategy': 'profile_context_only', 'llm_provider': provider})
+            return ChatResponse(answer=answer, sources=[], debug=debug_info if include_debug else None)
 
         context_parts: list[str] = []
         sources: list[SourceItem] = []

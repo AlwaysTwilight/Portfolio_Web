@@ -395,6 +395,7 @@ class PortfolioService:
                 }
             )
             seen_titles.add(key)
+        social_links = metadata_store.get_social_links()
         return {
             "profile": {
                 **header,
@@ -406,6 +407,11 @@ class PortfolioService:
                 "experience": experience,
                 "skills": skills,
                 "resumeProjects": resume_projects,
+                "socialLinks": {
+                    "linkedin": social_links.get("linkedin", ""),
+                    "github": social_links.get("github", ""),
+                    "email": social_links.get("email", ""),
+                },
             },
             "projects": projects,
             "documents": metadata_store.list_documents(),

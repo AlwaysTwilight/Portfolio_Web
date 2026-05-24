@@ -56,6 +56,12 @@ class UpdateSettingsRequest(BaseModel):
     skills: list[dict] = []
 
 
+class SocialLinksRequest(BaseModel):
+    linkedin: str = ""
+    github: str = ""
+    email: str = ""
+
+
 class RewriteRequest(BaseModel):
     kind: str
     fields: dict = {}
@@ -169,6 +175,19 @@ def update_admin_settings(request: UpdateSettingsRequest, x_admin_token: str | N
         "experience": metadata_store.get_portfolio_experience(),
         "skills": metadata_store.get_portfolio_skills(),
     }
+
+
+@app.get("/admin/social-links")
+def get_social_links(x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    return metadata_store.get_social_links()
+
+
+@app.put("/admin/social-links")
+def update_social_links(request: SocialLinksRequest, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    metadata_store.set_social_links({"linkedin": request.linkedin, "github": request.github, "email": request.email})
+    return metadata_store.get_social_links()
 
 
 @app.post("/admin/ai/rewrite")

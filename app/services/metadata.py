@@ -105,6 +105,14 @@ class SqliteMetadataStore:
             conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('profile_overrides', '{}')")
             conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('portfolio_experience', '[]')")
             conn.execute("INSERT OR IGNORE INTO app_settings (key, value) VALUES ('portfolio_skills', '[]')")
+            conn.execute(
+                "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('social_links', ?)",
+                (json.dumps({
+                    "linkedin": "https://www.linkedin.com/in/raj-sahoo-624439253/",
+                    "github": "https://github.com/AlwaysTwilight",
+                    "email": "rs1092002@gmail.com",
+                }),)
+            )
 
     # ── Portfolio projects ──────────────────────────────────────────────────
 
@@ -439,6 +447,19 @@ class SqliteMetadataStore:
     def set_portfolio_skills(self, value: list[dict[str, Any]]) -> None:
         self.set_setting("portfolio_skills", json.dumps(value))
 
+    def get_social_links(self) -> dict[str, str]:
+        raw = self.get_setting("social_links", "{}") or "{}"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            return {}
+
+    def set_social_links(self, value: dict[str, str]) -> None:
+        allowed = {"linkedin", "github", "email"}
+        payload = {k: str(v).strip() for k, v in value.items() if k in allowed}
+        self.set_setting("social_links", json.dumps(payload))
+
 
 class MongoMetadataStore:
     def __init__(self, mongo_uri: str, db_name: str) -> None:
@@ -461,6 +482,15 @@ class MongoMetadataStore:
         self._settings.update_one({"_id": "profile_overrides"}, {"$setOnInsert": {"value": "{}"}}, upsert=True)
         self._settings.update_one({"_id": "portfolio_experience"}, {"$setOnInsert": {"value": "[]"}}, upsert=True)
         self._settings.update_one({"_id": "portfolio_skills"}, {"$setOnInsert": {"value": "[]"}}, upsert=True)
+        self._settings.update_one(
+            {"_id": "social_links"},
+            {"$setOnInsert": {"value": json.dumps({
+                "linkedin": "https://www.linkedin.com/in/raj-sahoo-624439253/",
+                "github": "https://github.com/AlwaysTwilight",
+                "email": "rs1092002@gmail.com",
+            })}},
+            upsert=True,
+        )
         self._migrate_from_sqlite_if_present()
 
     def _migrate_from_sqlite_if_present(self) -> None:
@@ -713,6 +743,19 @@ class MongoMetadataStore:
 
     def set_portfolio_skills(self, value: list[dict[str, Any]]) -> None:
         self.set_setting("portfolio_skills", json.dumps(value))
+
+    def get_social_links(self) -> dict[str, str]:
+        raw = self.get_setting("social_links", "{}") or "{}"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            return {}
+
+    def set_social_links(self, value: dict[str, str]) -> None:
+        allowed = {"linkedin", "github", "email"}
+        payload = {k: str(v).strip() for k, v in value.items() if k in allowed}
+        self.set_setting("social_links", json.dumps(payload))
 
     # ── Portfolio projects ──────────────────────────────────────────────────
 

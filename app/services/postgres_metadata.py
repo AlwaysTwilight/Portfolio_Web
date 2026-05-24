@@ -73,6 +73,11 @@ class PostgresMetadataStore:
                     "profile_overrides": "{}",
                     "portfolio_experience": "[]",
                     "portfolio_skills": "[]",
+                    "social_links": json.dumps({
+                        "linkedin": "https://www.linkedin.com/in/raj-sahoo-624439253/",
+                        "github": "https://github.com/AlwaysTwilight",
+                        "email": "rs1092002@gmail.com",
+                    }),
                 }
                 for key, value in defaults.items():
                     conn.execute(
@@ -387,3 +392,16 @@ class PostgresMetadataStore:
 
     def set_portfolio_skills(self, value: list[dict[str, Any]]) -> None:
         self.set_setting("portfolio_skills", json.dumps(value))
+
+    def get_social_links(self) -> dict[str, str]:
+        raw = self.get_setting("social_links", "{}") or "{}"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            return {}
+
+    def set_social_links(self, value: dict[str, str]) -> None:
+        allowed = {"linkedin", "github", "email"}
+        payload = {k: str(v).strip() for k, v in value.items() if k in allowed}
+        self.set_setting("social_links", json.dumps(payload))

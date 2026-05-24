@@ -79,7 +79,7 @@ type UploadResult = {
   project_id?: string | null
 }
 
-type SectionId = 'overview' | 'profile' | 'experience' | 'skills' | 'projects' | 'documents'
+type SectionId = 'overview' | 'profile' | 'experience' | 'skills' | 'projects' | 'documents' | 'social'
 
 const API_BASE_URL     = import.meta.env.VITE_API_BASE_URL     || 'http://localhost:8000'
 const PORTFOLIO_ORIGIN = import.meta.env.VITE_PORTFOLIO_ORIGIN || 'http://localhost:3000'
@@ -113,6 +113,7 @@ const ICONS: Record<SectionId, string> = {
   skills:     'M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z',
   projects:   'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
   documents:  'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8',
+  social:     'M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z M2 9h4v12H2z M4 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
 }
 
 const SPARKLE = 'M12 3l1.6 4.9L18.5 9l-4.9 1.6L12 15.5l-1.6-4.9L5.5 9l4.9-1.1L12 3z'
@@ -161,6 +162,9 @@ function AdminPage() {
   const [projects, setProjects]     = useState<AdminProject[]>([])
   const [documents, setDocuments]   = useState<DocumentSummary[]>([])
   const [ragDocs, setRagDocs]       = useState<RagDocument[]>([])
+  const [socialLinkedin, setSocialLinkedin] = useState('')
+  const [socialGithub,   setSocialGithub]   = useState('')
+  const [socialEmail,    setSocialEmail]    = useState('')
   const bcRef = useRef<BroadcastChannel | null>(null)
 
   useEffect(() => {
@@ -203,6 +207,13 @@ function AdminPage() {
       setExperience(settings.experience?.length ? settings.experience : (pf?.experience || []))
       setSkills(settings.skills?.length ? settings.skills : (pf?.skills || []))
       setDocuments(pfPayload?.documents || [])
+      // Load social links
+      try {
+        const sl = await api<{ linkedin?: string; github?: string; email?: string }>('/admin/social-links')
+        setSocialLinkedin(sl.linkedin || '')
+        setSocialGithub(sl.github || '')
+        setSocialEmail(sl.email || '')
+      } catch { /* keep defaults */ }
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load admin settings.')
@@ -279,6 +290,7 @@ function AdminPage() {
     { id: 'skills',     label: 'Skills' },
     { id: 'projects',   label: 'Projects' },
     { id: 'documents',  label: 'Documents' },
+    { id: 'social',     label: 'Social Links' },
   ]
 
   return (
@@ -429,6 +441,27 @@ function AdminPage() {
               ragDocs={ragDocs}
               projects={projects}
               reload={async () => { await loadAll() }}
+              onError={(m) => flash(m)}
+            />
+          )}
+
+          {section === 'social' && (
+            <SocialLinksSection
+              linkedin={socialLinkedin}
+              github={socialGithub}
+              email={socialEmail}
+              setLinkedin={setSocialLinkedin}
+              setGithub={setSocialGithub}
+              setEmail={setSocialEmail}
+              onSave={async () => {
+                await api('/admin/social-links', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ linkedin: socialLinkedin, github: socialGithub, email: socialEmail }),
+                })
+                notifyPortfolio()
+                flash('Social links saved.')
+              }}
               onError={(m) => flash(m)}
             />
           )}
@@ -1256,3 +1289,56 @@ function EmptyState({ text }: { text: string }) {
 }
 
 export default AdminPage
+
+/* ══════════════════════════════════════════════
+   Social Links Section
+══════════════════════════════════════════════ */
+function SocialLinksSection({
+  linkedin, github, email,
+  setLinkedin, setGithub, setEmail,
+  onSave, onError,
+}: {
+  linkedin: string; github: string; email: string
+  setLinkedin: (v: string) => void
+  setGithub:   (v: string) => void
+  setEmail:    (v: string) => void
+  onSave:  () => Promise<void>
+  onError: (m: string) => void
+}) {
+  const [saving, setSaving] = useState(false)
+  return (
+    <div className="section-pane">
+      <div className="section-pane-header">
+        <h2 className="section-pane-title">Social Links</h2>
+        <p className="section-pane-sub">Displayed in the footer of the public portfolio.</p>
+      </div>
+      <div className="form-grid" style={{ maxWidth: 520 }}>
+        <label className="field-label">LinkedIn URL
+          <input className="field-input" value={linkedin} onChange={e => setLinkedin(e.target.value)}
+            placeholder="https://linkedin.com/in/your-handle" type="url" />
+        </label>
+        <label className="field-label">GitHub URL
+          <input className="field-input" value={github} onChange={e => setGithub(e.target.value)}
+            placeholder="https://github.com/your-handle" type="url" />
+        </label>
+        <label className="field-label">Contact Email
+          <input className="field-input" value={email} onChange={e => setEmail(e.target.value)}
+            placeholder="you@email.com" type="email" />
+        </label>
+        <button
+          className="btn-primary"
+          disabled={saving}
+          onClick={async () => {
+            setSaving(true)
+            try { await onSave() }
+            catch (e) { onError(e instanceof Error ? e.message : 'Save failed.') }
+            finally { setSaving(false) }
+          }}
+          type="button"
+        >
+          {saving ? 'Saving…' : 'Save Social Links'}
+        </button>
+      </div>
+    </div>
+  )
+}
