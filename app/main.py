@@ -194,6 +194,17 @@ def submit_contact(request: ContactRequest) -> dict:
     }
 
 
+@app.get("/admin/verify")
+def verify_admin(x_admin_token: str | None = Header(default=None)) -> dict:
+    """Validate an admin token. Returns ok=True when the token is accepted.
+
+    When ADMIN_TOKEN is unset on the server, any token is accepted (local dev),
+    and required=False signals the client that no gate is enforced.
+    """
+    _require_admin(x_admin_token)
+    return {"ok": True, "required": bool(settings.admin_token)}
+
+
 @app.get("/admin/settings")
 def get_admin_settings() -> dict:
     return {

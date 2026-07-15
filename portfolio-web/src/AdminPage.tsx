@@ -164,6 +164,10 @@ function AdminPage() {
   const [adminToken, setAdminToken] = useState(() => localStorage.getItem(ADMIN_TOKEN_KEY) || '')
   const api = useMemo(() => makeApi(() => adminToken), [adminToken])
 
+  // Auth gate: null = checking, false = needs login, true = authorized
+  const [authed, setAuthed] = useState<boolean | null>(null)
+  const [tokenRequired, setTokenRequired] = useState(true)
+
   const [section, setSection]     = useState<SectionId>('overview')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [theme, setTheme]         = useState<'light' | 'dark'>(() =>
@@ -298,7 +302,56 @@ function AdminPage() {
     catch { /* keep usable */ }
   }
 
-  useEffect(() => { void loadAll() }, [])
+  // Verify a token against the backend. Returns true if accepted.
+  async function verifyToken(token: string): Promise<{ ok: boolean; required: boolean }> {
+    try {
+      const headers: Record<string, string> = {}
+      if (token) headers['X-Admin-Token'] = token
+      const res = await fetch(`${API_BASE_URL}/admin/verify`, { headers })
+      if (!res.ok) return { ok: false, required: true }
+      const data = await res.json() as { ok: boolean; required: boolean }
+      return { ok: Boolean(data.ok), required: Boolean(data.required) }
+    } catch {
+      return { ok: false, required: true }
+    }
+  }
+
+  // On mount: check whether a gate is enforced and whether the stored token passes it.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const stored = localStorage.getItem(ADMIN_TOKEN_KEY) || ''
+      const { ok, required } = await verifyToken(stored)
+      if (cancelled) return
+      setTokenRequired(required)
+      if (ok || !required) {
+        setAuthed(true)
+        void loadAll()
+      } else {
+        setAuthed(false)
+        setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // Called by the login screen. Validates before entering admin mode.
+  async function login(token: string): Promise<void> {
+    const { ok, required } = await verifyToken(token)
+    setTokenRequired(required)
+    if (!ok && required) {
+      throw new Error('Incorrect admin token.')
+    }
+    persistToken(token)
+    setAuthed(true)
+    void loadAll()
+  }
+
+  function logout() {
+    persistToken('')
+    setAuthed(false)
+    setSection('overview')
+  }
 
   // BroadcastChannel — notify portfolio page after every admin save
   useEffect(() => {
@@ -349,6 +402,27 @@ function AdminPage() {
     { id: 'sections',   label: 'Sections' },
     { id: 'social',     label: 'Social Links' },
   ]
+
+  // ── Auth gate ──
+  if (authed === null) {
+    return (
+      <div className="cms-login">
+        <div className="cms-login-card">
+          <div className="cms-login-brand">
+            <div className="cms-brand-icon">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3l1.6 4.9L18.5 9l-4.9 1.6L12 15.5l-1.6-4.9L5.5 9l4.9-1.1L12 3z"/>
+              </svg>
+            </div>
+            <span>Checking access…</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+  if (authed === false) {
+    return <LoginGate onLogin={login} required={tokenRequired} theme={theme} />
+  }
 
   return (
     <div className="cms-shell">
@@ -421,24 +495,30 @@ function AdminPage() {
                 : 'M12 1v2M12 21v2M4.2 4.2l1.4 1.4M18.4 18.4l1.4 1.4M1 12h2M21 12h2M4.2 19.8l1.4-1.4M18.4 5.6l1.4-1.4M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z'}
               />
             </button>
+            {tokenRequired && (
+              <button
+                className="cms-icon-btn"
+                onClick={logout}
+                type="button"
+                aria-label="Log out"
+                title="Log out"
+              >
+                <Icon path="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9" />
+              </button>
+            )}
           </div>
         </header>
 
         <main className="cms-content">
           {error && <div className="error-banner" role="alert">{error}</div>}
-          {!adminToken && (
-            <div className="cms-callout">
-              No admin token set. If <code>ADMIN_TOKEN</code> is configured on the API, add it under Overview → Access to enable saving.
-            </div>
-          )}
           {loading && <p className="status-text">Loading…</p>}
 
           {section === 'overview' && (
             <OverviewSection
               openToWork={openToWork}
               counts={{ experience: experience.length, skills: skills.length, projects: projects.length, documents: ragDocs.length }}
-              adminToken={adminToken}
-              onToken={persistToken}
+              messages={contactMessages.length}
+              unread={contactMessages.filter(m => !m.is_read).length}
               onToggleOpenToWork={async (next) => {
                 try { await persistSettings({ openToWork: next }); flash(next ? 'Marked as open to work.' : 'Marked as not looking.') }
                 catch (e) { flash(e instanceof Error ? e.message : 'Save failed.') }
@@ -589,21 +669,23 @@ const STAT_ICONS: Record<string, string> = {
   skills:     'M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z',
   projects:   'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
   documents:  'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6',
+  messages:   'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
 }
 
 function OverviewSection(props: {
   openToWork: boolean
   counts: { experience: number; skills: number; projects: number; documents: number }
-  adminToken: string
-  onToken: (v: string) => void
+  messages: number
+  unread: number
   onToggleOpenToWork: (next: boolean) => void
   onGoto: (s: SectionId) => void
 }) {
-  const cards: Array<{ id: SectionId; label: string; value: number }> = [
+  const cards: Array<{ id: SectionId; label: string; value: number; badge?: number }> = [
     { id: 'experience', label: 'Experience',   value: props.counts.experience },
     { id: 'skills',     label: 'Skill groups', value: props.counts.skills },
     { id: 'projects',   label: 'Projects',     value: props.counts.projects },
     { id: 'documents',  label: 'Indexed docs', value: props.counts.documents },
+    { id: 'messages',   label: 'Messages',     value: props.messages, badge: props.unread },
   ]
   return (
     <>
@@ -612,10 +694,11 @@ function OverviewSection(props: {
       <div className="cms-stat-grid">
         {cards.map(c => (
           <button className="cms-stat" key={c.id} onClick={() => props.onGoto(c.id)} type="button">
-            <div style={{ color: 'var(--muted)', marginBottom: '0.4rem' }}>
+            <div style={{ color: 'var(--muted)', marginBottom: '0.4rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d={STAT_ICONS[c.id]} />
               </svg>
+              {c.badge ? <span className="cms-stat-badge">{c.badge}</span> : null}
             </div>
             <span className="cms-stat-value">{c.value}</span>
             <span className="cms-stat-label">{c.label}</span>
@@ -638,24 +721,74 @@ function OverviewSection(props: {
           </button>
         </div>
       </div>
+    </>
+  )
+}
 
-      <div className="cms-card">
-        <h3 className="cms-card-title">Access</h3>
-        <p className="cms-card-desc" style={{ marginBottom: '1rem' }}>
-          If <code>ADMIN_TOKEN</code> is set on the API, enter the same value to authorize edits. Stored only in this browser.
+/* ══════════════════════════════════════════════
+   Login gate
+══════════════════════════════════════════════ */
+function LoginGate({ onLogin, required, theme }: {
+  onLogin: (token: string) => Promise<void>
+  required: boolean
+  theme: 'light' | 'dark'
+}) {
+  const [token, setToken] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+  }, [theme])
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setErr(''); setBusy(true)
+    try { await onLogin(token.trim()) }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Login failed.') }
+    finally { setBusy(false) }
+  }
+
+  return (
+    <div className="cms-login">
+      <form className="cms-login-card" onSubmit={submit}>
+        <div className="cms-login-brand">
+          <div className="cms-brand-icon">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M12 3l1.6 4.9L18.5 9l-4.9 1.6L12 15.5l-1.6-4.9L5.5 9l4.9-1.1L12 3z"/>
+            </svg>
+          </div>
+          <div>
+            <div className="cms-login-title">Portfolio CMS</div>
+            <div className="cms-login-sub">Admin sign in</div>
+          </div>
+        </div>
+
+        <p className="cms-login-hint">
+          {required
+            ? 'Enter your admin token to continue. This is the same value set as ADMIN_TOKEN on the API.'
+            : 'No admin token is required for this API. Press Enter to continue.'}
         </p>
+
         <label className="field-label">
           Admin token
           <input
             className="field-input"
-            onChange={e => props.onToken(e.target.value)}
-            placeholder="X-Admin-Token"
             type="password"
-            value={props.adminToken}
+            value={token}
+            onChange={e => setToken(e.target.value)}
+            placeholder="X-Admin-Token"
+            autoFocus
           />
         </label>
-      </div>
-    </>
+
+        {err && <p className="cms-login-error" role="alert">{err}</p>}
+
+        <button className="btn-admin cms-login-btn" type="submit" disabled={busy}>
+          {busy ? 'Verifying…' : 'Enter admin'}
+        </button>
+      </form>
+    </div>
   )
 }
 

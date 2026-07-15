@@ -1745,3 +1745,35 @@ select.field-input { cursor: pointer; }
   padding: .12rem .5rem; border-radius: 999px; background: var(--surface); color: var(--muted);
 }
 .section-order-state.on { background: rgba(16,185,129,.12); color: #10b981; }
+
+/* ══════════════════════════════════════════
+   ADMIN — Login gate
+══════════════════════════════════════════ */
+.cms-login {
+  min-height: 100vh;
+  display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem;
+  background: var(--bg, #0c0c0c);
+}
+.cms-login-card {
+  width: 100%; max-width: 400px;
+  display: flex; flex-direction: column; gap: 1.1rem;
+  padding: 2rem;
+  border: 1px solid var(--border, #2a2a2a);
+  border-radius: 16px;
+  background: var(--card, #1c1c1c);
+  box-shadow: 0 24px 60px rgba(0,0,0,.35);
+}
+.cms-login-brand { display: flex; align-items: center; gap: .75rem; }
+.cms-login-title { font-size: 1.05rem; font-weight: 700; color: var(--ink, #fafafa); }
+.cms-login-sub { font-size: .75rem; color: var(--muted, #71717a); font-family: 'DM Mono', monospace; letter-spacing: .05em; }
+.cms-login-hint { font-size: .85rem; color: var(--muted, #71717a); line-height: 1.6; }
+.cms-login-error { font-size: .85rem; color: #ef4444; margin: -.3rem 0 0; }
+.cms-login-btn { width: 100%; justify-content: center; margin-top: .3rem; }
+
+.cms-stat-badge {
+  min-width: 18px; height: 18px; padding: 0 5px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: .68rem; font-weight: 700; border-radius: 999px;
+  background: #ef4444; color: #fff;
+}
