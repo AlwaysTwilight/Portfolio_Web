@@ -1414,6 +1414,21 @@ select.field-input { cursor: pointer; }
   background: var(--surface); color: var(--ink-2);
   border: 1px solid var(--border); border-radius: 14px 14px 14px 4px;
 }
+
+/* Markdown inside assistant chat bubbles */
+.chat-bubble .chat-md-p { margin: 0 0 .5rem; }
+.chat-bubble .chat-md-p:last-child { margin-bottom: 0; }
+.chat-bubble .chat-md-list { margin: .3rem 0 .55rem; padding-left: 1.15rem; display: flex; flex-direction: column; gap: .28rem; }
+.chat-bubble .chat-md-list:last-child { margin-bottom: 0; }
+.chat-bubble .chat-md-list li { line-height: 1.5; }
+.chat-bubble .chat-md-list li::marker { color: var(--a); }
+.chat-bubble strong { color: var(--ink); font-weight: 650; }
+.chat-bubble a { color: var(--a); text-decoration: underline; text-underline-offset: 2px; }
+.chat-bubble .chat-code {
+  font-family: 'DM Mono', ui-monospace, monospace; font-size: .82em;
+  background: var(--card); border: 1px solid var(--border);
+  padding: .05rem .32rem; border-radius: 5px;
+}
 .chat-bubble--typing { display: flex; gap: .35rem; align-items: center; padding: .65rem .85rem; min-width: 52px; }
 .chat-bubble--typing span {
   width: 7px; height: 7px; border-radius: 50%; background: var(--a); opacity: .55;

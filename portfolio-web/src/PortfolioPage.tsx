@@ -99,6 +99,69 @@ function normalizeCalUrl(raw: string): string {
   return `https://cal.com/${v}`
 }
 
+// ─── Lightweight, safe markdown renderer for chat bubbles ──────────────────────
+// Handles: **bold**, `code`, bullet lists (- / *), numbered lists, links, and
+// paragraphs. No dangerouslySetInnerHTML — everything is rendered as React nodes.
+function renderInline(text: string, keyBase: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = []
+  // Split on **bold**, `code`, and markdown links [text](url) while keeping delimiters.
+  const pattern = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|https?:\/\/[^\s)]+)/g
+  let last = 0
+  let m: RegExpExecArray | null
+  let i = 0
+  while ((m = pattern.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index))
+    const tok = m[0]
+    if (tok.startsWith('**')) {
+      nodes.push(<strong key={`${keyBase}-b${i}`}>{tok.slice(2, -2)}</strong>)
+    } else if (tok.startsWith('`')) {
+      nodes.push(<code key={`${keyBase}-c${i}`} className="chat-code">{tok.slice(1, -1)}</code>)
+    } else if (tok.startsWith('[')) {
+      const mm = /\[([^\]]+)\]\(([^)]+)\)/.exec(tok)
+      if (mm) nodes.push(<a key={`${keyBase}-l${i}`} href={mm[2]} target="_blank" rel="noopener noreferrer">{mm[1]}</a>)
+    } else if (/^https?:\/\//.test(tok)) {
+      nodes.push(<a key={`${keyBase}-u${i}`} href={tok} target="_blank" rel="noopener noreferrer">{tok}</a>)
+    }
+    last = m.index + tok.length
+    i++
+  }
+  if (last < text.length) nodes.push(text.slice(last))
+  return nodes
+}
+
+function ChatMarkdown({ text }: { text: string }) {
+  const lines = text.split('\n')
+  const blocks: React.ReactNode[] = []
+  let listBuffer: string[] = []
+  let listType: 'ul' | 'ol' | null = null
+
+  const flushList = (key: string) => {
+    if (!listBuffer.length || !listType) return
+    const items = listBuffer.map((li, idx) => <li key={`${key}-li${idx}`}>{renderInline(li, `${key}-li${idx}`)}</li>)
+    blocks.push(listType === 'ul' ? <ul key={key} className="chat-md-list">{items}</ul> : <ol key={key} className="chat-md-list">{items}</ol>)
+    listBuffer = []
+    listType = null
+  }
+
+  lines.forEach((raw, idx) => {
+    const line = raw.trimEnd()
+    const bullet = /^\s*[-*]\s+(.*)$/.exec(line)
+    const numbered = /^\s*\d+[.)]\s+(.*)$/.exec(line)
+    if (bullet) {
+      if (listType && listType !== 'ul') flushList(`ul-${idx}`)
+      listType = 'ul'; listBuffer.push(bullet[1])
+    } else if (numbered) {
+      if (listType && listType !== 'ol') flushList(`ol-${idx}`)
+      listType = 'ol'; listBuffer.push(numbered[1])
+    } else {
+      flushList(`list-${idx}`)
+      if (line.trim()) blocks.push(<p key={`p-${idx}`} className="chat-md-p">{renderInline(line, `p-${idx}`)}</p>)
+    }
+  })
+  flushList('list-end')
+  return <>{blocks}</>
+}
+
 // ─── Typewriter hook ──────────────────────────────────────────────────────────
 
 function useTypewriter(text: string, speed = 42) {
@@ -932,7 +995,11 @@ export default function PortfolioPage() {
           <div className="chat-messages" role="log" aria-live="polite">
             {messages.map((msg, i) => (
               <div key={i} className={`chat-msg chat-msg--${msg.role}`}>
-                <div className="chat-bubble">{msg.content}</div>
+                <div className="chat-bubble">
+                  {msg.role === 'assistant'
+                    ? <ChatMarkdown text={msg.content} />
+                    : msg.content}
+                </div>
               </div>
             ))}
             {chatting && (

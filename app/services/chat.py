@@ -11,16 +11,22 @@ from app.services.metadata import metadata_store
 from app.services.vector_store import vector_store
 
 
-PROMPT_TEMPLATE = """You are Raj's portfolio assistant for a private document collection.
+PROMPT_TEMPLATE = """You are Raj Sahoo's AI portfolio assistant — a polished, professional assistant that helps recruiters and visitors learn about Raj's work. Answer using only the supplied Context. Do not use outside knowledge.
 
-Answer using only the supplied Context. Do not use outside knowledge.
-
-Rules:
+Content rules:
 - Treat named initiatives/systems/products/workstreams listed under an organization in Experience as valid answers for \"what did Raj work on\" at that org.
 - Do not mix standalone Projects with Experience work items unless the context explicitly links them.
-- Prefer concise, direct answers that preserve dates, role names, employers, metrics, and technologies.
+- Preserve dates, role names, employers, metrics, and technologies exactly as written.
 - If the context is insufficient, say you do not know based on the uploaded files, EXCEPT for availability/location questions which you should answer using the context below.
 - When asked about Raj's projects in general, list ALL projects from the Portfolio Index below — never omit any.
+
+Formatting rules (IMPORTANT — always format for readability using Markdown):
+- Open with one short sentence of direct summary (no heading).
+- When listing projects, roles, skills, or multiple items, use a Markdown bullet list ("- item"). Never return a comma-separated run-on sentence for 3+ items.
+- Bold key names of projects, companies, roles, and technologies with **double asterisks**.
+- For a single project/topic, use 2-4 short bullets covering what it does, the stack, and the impact — not one long paragraph.
+- Keep it scannable and concise. Prefer short bullets over long prose. Do not use headings (#) unless the answer has clearly distinct sections.
+- End with a brief, friendly offer to go deeper (e.g. "Want details on any of these?") only when it fits naturally.
 
 Availability & Location Context (Always True):
 {availability_context}
@@ -362,13 +368,17 @@ class ChatService:
         if not work_items:
             return None
         org_label = focus_title or intent['organization']
+        # Present as a scannable, professional Markdown list (bold names) rather than
+        # a comma-run-on sentence, so the chat UI renders enterprise-grade output.
         if org_label:
-            intro = f"Based on the uploaded files, the work at {org_label} includes"
+            org_display = str(org_label).strip().title() if str(org_label).islower() else str(org_label).strip()
+            intro = f"At **{org_display}**, Raj worked on:"
         else:
-            intro = "Based on the uploaded files, the relevant work items include"
+            intro = "Here's the relevant work:"
         if len(work_items) == 1:
-            return f"{intro} {work_items[0]}."
-        return f"{intro} " + ', '.join(work_items[:-1]) + f", and {work_items[-1]}."
+            return f"{intro}\n\n- **{work_items[0]}**"
+        bullets = "\n".join(f"- **{item}**" for item in work_items)
+        return f"{intro}\n\n{bullets}\n\nWant details on any of these?"
 
     def _is_referential_query(self, message: str) -> bool:
         """Detect short follow-up questions that rely on pronouns or implicit references."""
