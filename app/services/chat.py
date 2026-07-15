@@ -380,11 +380,22 @@ class ChatService:
         bullets = "\n".join(f"- **{item}**" for item in work_items)
         return f"{intro}\n\n{bullets}\n\nWant details on any of these?"
 
+    # Pronouns/determiners that signal the question refers to something said earlier.
+    _REFERENTIAL_PRONOUNS = re.compile(
+        r'\b(it|its|it\'s|that|this|they|them|those|these|the project|the system|the same|the above)\b',
+        re.IGNORECASE,
+    )
+
     def _is_referential_query(self, message: str) -> bool:
-        """Detect short follow-up questions that rely on pronouns or implicit references."""
+        """Detect follow-up questions that rely on pronouns or implicit references.
+
+        Two signals: (1) explicit follow-up phrasings, or (2) a short question that
+        contains a referential pronoun ("it", "that", "they", ...) and names no
+        concrete subject of its own — e.g. "what tech does it use?", "who built it?".
+        """
         lowered = message.lower().strip()
         referential_patterns = [
-            r'^(tell me more|more details?|elaborate|explain( more)?)[.!?]*$',
+            r'^(tell me more|more details?|elaborate|explain( more)?|go on|continue)[.!?]*$',
             r'^(what (is|are|was|were) (it|that|this|they|them|those|these))[.!?]*$',
             r'^(tell me more about (it|that|this|them|those|these))[.!?]*$',
             r'^(how (does|did|do) (it|that|this|they|them) work)[.!?]*$',
@@ -392,22 +403,53 @@ class ChatService:
             r'^(and (what|how|why|when|where|who|tell me))',
             r'^(more about (it|that|this))',
         ]
-        return any(re.search(pattern, lowered) for pattern in referential_patterns)
+        if any(re.search(pattern, lowered) for pattern in referential_patterns):
+            return True
+        # Short question (<= ~12 words) that leans on a pronoun and names no explicit
+        # project/company keyword of its own is almost certainly a follow-up.
+        word_count = len(re.findall(r'[a-z0-9]+', lowered))
+        if word_count <= 12 and self._REFERENTIAL_PRONOUNS.search(lowered):
+            # If the message already names a known subject, it's self-contained, not referential.
+            names_subject = self._extract_query_organization(message) is not None or any(
+                kw in lowered for kw in ('carevio', 'crm', 'mcp', 'plant', 'sentiment', 'proctoring', 'resume', 'skill', 'experience')
+            )
+            if not names_subject:
+                return True
+        return False
+
+    _SUBJECT_KEYWORDS = (
+        'carevio', 'crm mcp', 'crm', 'mcp server', 'plant disease', 'plant',
+        'sentiment analysis', 'sentiment', 'proctoring', 'lead qualification',
+        'voice ai', 'social media automation', 'myonsite',
+    )
+
+    def _last_subject_from_history(self, history: list[ConversationTurn]) -> str | None:
+        """Find the most recently mentioned concrete subject (project/company) in the
+        conversation, so a pronoun like 'it' can be anchored to the right topic."""
+        for turn in reversed(history):
+            text = turn.content.lower()
+            for kw in self._SUBJECT_KEYWORDS:
+                if kw in text:
+                    return kw
+        return None
 
     def _expand_query_with_history(self, message: str, history: list[ConversationTurn]) -> str:
-        """For short referential queries, prepend the last assistant reply as context."""
+        """For short referential queries, anchor to the last discussed subject and
+        prepend the last assistant reply as context so retrieval stays on-topic."""
         if not history or not self._is_referential_query(message):
             return message
-        # Find the last assistant message to use as context for the referential query
         last_assistant = next(
             (turn.content for turn in reversed(history) if turn.role == 'assistant'),
             None,
         )
-        if not last_assistant:
-            return message
-        # Construct an expanded, self-contained query
-        excerpt = last_assistant[:300].rstrip()
-        return f"{message} (Context from previous answer: {excerpt})"
+        subject = self._last_subject_from_history(history)
+        parts = [message]
+        # Naming the subject explicitly is the strongest anchor for vector retrieval.
+        if subject:
+            parts.append(f"(Subject: {subject})")
+        if last_assistant:
+            parts.append(f"(Context from previous answer: {last_assistant[:280].rstrip()})")
+        return ' '.join(parts)
 
     def _build_conversation_history_section(self, history: list[ConversationTurn]) -> str:
         """Render the last 6 conversation turns as a formatted section for the prompt."""
