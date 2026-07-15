@@ -79,7 +79,30 @@ type UploadResult = {
   project_id?: string | null
 }
 
-type SectionId = 'overview' | 'profile' | 'experience' | 'skills' | 'projects' | 'documents' | 'social'
+type ContactMessage = {
+  message_id: string
+  name: string
+  email: string
+  message: string
+  source: string
+  is_read: boolean
+  created_at: string
+}
+
+type Scheduling = {
+  calLink: string
+  enabled: boolean
+  headline: string
+  subtext: string
+}
+
+type SiteSection = {
+  id: string
+  label: string
+  visible: boolean
+}
+
+type SectionId = 'overview' | 'profile' | 'experience' | 'skills' | 'projects' | 'documents' | 'social' | 'messages' | 'scheduling' | 'sections'
 
 const API_BASE_URL     = import.meta.env.VITE_API_BASE_URL     || 'http://localhost:8000'
 const PORTFOLIO_ORIGIN = import.meta.env.VITE_PORTFOLIO_ORIGIN || 'http://localhost:3000'
@@ -114,6 +137,9 @@ const ICONS: Record<SectionId, string> = {
   projects:   'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z',
   documents:  'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8',
   social:     'M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z M2 9h4v12H2z M4 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
+  messages:   'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+  scheduling: 'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
+  sections:   'M4 5h16M4 12h16M4 19h16M8 5v14',
 }
 
 const SPARKLE = 'M12 3l1.6 4.9L18.5 9l-4.9 1.6L12 15.5l-1.6-4.9L5.5 9l4.9-1.1L12 3z'
@@ -165,6 +191,9 @@ function AdminPage() {
   const [socialLinkedin, setSocialLinkedin] = useState('')
   const [socialGithub,   setSocialGithub]   = useState('')
   const [socialEmail,    setSocialEmail]    = useState('')
+  const [contactMessages, setContactMessages] = useState<ContactMessage[]>([])
+  const [scheduling, setScheduling] = useState<Scheduling>({ calLink: '', enabled: false, headline: "Let's talk", subtext: '' })
+  const [siteSections, setSiteSections] = useState<SiteSection[]>([])
   const bcRef = useRef<BroadcastChannel | null>(null)
 
   useEffect(() => {
@@ -222,6 +251,9 @@ function AdminPage() {
     }
     void loadProjects()
     void loadRagDocs()
+    void loadMessages()
+    void loadScheduling()
+    void loadSections()
   }
 
   async function loadProjects() {
@@ -241,6 +273,28 @@ function AdminPage() {
 
   async function loadRagDocs() {
     try { setRagDocs((await api<{ documents: RagDocument[] }>('/admin/rag/documents')).documents || []) }
+    catch { /* keep usable */ }
+  }
+
+  async function loadMessages() {
+    try { setContactMessages((await api<{ messages: ContactMessage[] }>('/admin/messages')).messages || []) }
+    catch { /* keep usable */ }
+  }
+
+  async function loadScheduling() {
+    try {
+      const s = await api<Scheduling>('/admin/scheduling')
+      setScheduling({
+        calLink: s.calLink || '',
+        enabled: Boolean(s.enabled),
+        headline: s.headline || "Let's talk",
+        subtext: s.subtext || '',
+      })
+    } catch { /* keep defaults */ }
+  }
+
+  async function loadSections() {
+    try { setSiteSections((await api<{ sections: SiteSection[] }>('/admin/sections')).sections || []) }
     catch { /* keep usable */ }
   }
 
@@ -290,6 +344,9 @@ function AdminPage() {
     { id: 'skills',     label: 'Skills' },
     { id: 'projects',   label: 'Projects' },
     { id: 'documents',  label: 'Documents' },
+    { id: 'messages',   label: 'Messages' },
+    { id: 'scheduling', label: 'Scheduling' },
+    { id: 'sections',   label: 'Sections' },
     { id: 'social',     label: 'Social Links' },
   ]
 
@@ -461,6 +518,57 @@ function AdminPage() {
                 })
                 notifyPortfolio()
                 flash('Social links saved.')
+              }}
+              onError={(m) => flash(m)}
+            />
+          )}
+
+          {section === 'messages' && (
+            <MessagesSection
+              messages={contactMessages}
+              onMarkRead={async (id) => {
+                try { await api(`/admin/messages/${id}/read`, { method: 'PUT' }); await loadMessages() }
+                catch (e) { flash(e instanceof Error ? e.message : 'Failed.') }
+              }}
+              onDelete={async (id) => {
+                if (!confirm('Delete this message?')) return
+                try { await api(`/admin/messages/${id}`, { method: 'DELETE' }); await loadMessages() }
+                catch (e) { flash(e instanceof Error ? e.message : 'Delete failed.') }
+              }}
+            />
+          )}
+
+          {section === 'scheduling' && (
+            <SchedulingSection
+              value={scheduling}
+              setValue={setScheduling}
+              onSave={async () => {
+                const saved = await api<Scheduling>('/admin/scheduling', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(scheduling),
+                })
+                setScheduling(saved)
+                notifyPortfolio()
+                flash('Scheduling saved.')
+              }}
+              onError={(m) => flash(m)}
+            />
+          )}
+
+          {section === 'sections' && (
+            <SectionsSection
+              sections={siteSections}
+              setSections={setSiteSections}
+              onSave={async () => {
+                const saved = await api<{ sections: SiteSection[] }>('/admin/sections', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ sections: siteSections }),
+                })
+                setSiteSections(saved.sections || siteSections)
+                notifyPortfolio()
+                flash('Sections updated.')
               }}
               onError={(m) => flash(m)}
             />
@@ -1340,5 +1448,177 @@ function SocialLinksSection({
         </button>
       </div>
     </div>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Messages
+══════════════════════════════════════════════ */
+function MessagesSection({
+  messages, onMarkRead, onDelete,
+}: {
+  messages: ContactMessage[]
+  onMarkRead: (id: string) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const unread = messages.filter(m => !m.is_read).length
+  function fmt(iso: string) {
+    try { return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) }
+    catch { return iso }
+  }
+  return (
+    <>
+      <SectionHead
+        title="Messages"
+        sub={messages.length === 0 ? 'Contact-form and chatbot submissions land here.' : `${messages.length} message${messages.length === 1 ? '' : 's'}${unread ? ` · ${unread} unread` : ''}`}
+      />
+      <div className="doc-list">
+        {messages.map(m => (
+          <div className={`cms-card msg-card${m.is_read ? '' : ' msg-card--unread'}`} key={m.message_id} style={{ marginBottom: '0.75rem' }}>
+            <div className="msg-head">
+              <div>
+                <p className="doc-key">
+                  {m.name}
+                  {!m.is_read && <span className="msg-dot" title="Unread" />}
+                  <span className={`msg-source msg-source--${m.source}`}>{m.source === 'chat' ? 'chatbot' : 'form'}</span>
+                </p>
+                <p className="doc-sub">
+                  <a href={`mailto:${m.email}`}>{m.email}</a> · {fmt(m.created_at)}
+                </p>
+              </div>
+              <div className="preview-actions">
+                <a className="btn-admin-outline btn-xs" href={`mailto:${m.email}?subject=Re: your message`}>Reply</a>
+                {!m.is_read && <button className="btn-admin-outline btn-xs" onClick={() => onMarkRead(m.message_id)} type="button">Mark read</button>}
+                <button className="btn-danger btn-xs" onClick={() => onDelete(m.message_id)} type="button">Delete</button>
+              </div>
+            </div>
+            <p className="msg-body">{m.message}</p>
+          </div>
+        ))}
+        {messages.length === 0 && <EmptyState text="No messages yet." />}
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Scheduling
+══════════════════════════════════════════════ */
+function SchedulingSection({
+  value, setValue, onSave, onError,
+}: {
+  value: Scheduling
+  setValue: (v: Scheduling) => void
+  onSave: () => Promise<void>
+  onError: (m: string) => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const preview = (() => {
+    const v = (value.calLink || '').trim().replace(/^@/, '')
+    if (!v) return ''
+    if (/^https?:\/\//i.test(v)) return v
+    if (/^cal\.com\//i.test(v) || v.includes('calendly.com')) return `https://${v}`
+    return `https://cal.com/${v}`
+  })()
+  return (
+    <>
+      <SectionHead
+        title="Scheduling"
+        sub="Let visitors book a call. Uses Cal.com (or Calendly) — connect your Google Calendar there for live availability + auto Google Meet links."
+      />
+      <div className="cms-card">
+        <div className="cms-card-head">
+          <div>
+            <h3 className="cms-card-title">Show scheduling section</h3>
+            <p className="cms-card-desc">Adds a "Book a call" section to the public site and lets the chatbot share your link.</p>
+          </div>
+          <button className={`switch-button${value.enabled ? ' on' : ''}`} onClick={() => setValue({ ...value, enabled: !value.enabled })} type="button"><span /></button>
+        </div>
+      </div>
+      <div className="cms-card">
+        <div className="form-grid">
+          <label className="field-label" style={{ gridColumn: '1 / -1' }}>Cal.com / Calendly link
+            <input className="field-input" value={value.calLink} onChange={e => setValue({ ...value, calLink: e.target.value })}
+              placeholder="your-handle  or  cal.com/your-handle" type="text" />
+          </label>
+          {preview && (
+            <p className="cms-card-desc" style={{ gridColumn: '1 / -1', marginTop: '-0.4rem' }}>
+              Booking link → <a href={preview} target="_blank" rel="noreferrer">{preview}</a>
+            </p>
+          )}
+          <label className="field-label">Section headline
+            <input className="field-input" value={value.headline} onChange={e => setValue({ ...value, headline: e.target.value })} placeholder="Let's talk" />
+          </label>
+          <label className="field-label" style={{ gridColumn: '1 / -1' }}>Subtext
+            <textarea className="field-input" value={value.subtext} onChange={e => setValue({ ...value, subtext: e.target.value })} rows={2}
+              placeholder="Book a 30-minute call — you'll get a Google Meet link automatically." />
+          </label>
+        </div>
+        <div className="cms-callout" style={{ marginTop: '0.5rem' }}>
+          <strong>Setup:</strong> Create a free account at <a href="https://cal.com" target="_blank" rel="noreferrer">cal.com</a>, connect Google Calendar,
+          set your availability, then paste your booking link above. No redeploy needed.
+        </div>
+        <div className="cms-actions">
+          <button className="btn-admin" disabled={saving} type="button"
+            onClick={async () => { setSaving(true); try { await onSave() } catch (e) { onError(e instanceof Error ? e.message : 'Save failed.') } finally { setSaving(false) } }}>
+            {saving ? 'Saving…' : 'Save scheduling'}
+          </button>
+        </div>
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Sections (visibility + order)
+══════════════════════════════════════════════ */
+function SectionsSection({
+  sections, setSections, onSave, onError,
+}: {
+  sections: SiteSection[]
+  setSections: (v: SiteSection[]) => void
+  onSave: () => Promise<void>
+  onError: (m: string) => void
+}) {
+  const [saving, setSaving] = useState(false)
+  function move(index: number, dir: 'up' | 'down') {
+    const next = [...sections]
+    const swap = dir === 'up' ? index - 1 : index + 1
+    if (swap < 0 || swap >= next.length) return
+    ;[next[index], next[swap]] = [next[swap], next[index]]
+    setSections(next)
+  }
+  function toggle(index: number) {
+    setSections(sections.map((s, i) => i === index ? { ...s, visible: !s.visible } : s))
+  }
+  return (
+    <>
+      <SectionHead title="Sections" sub="Show, hide, and reorder the sections on your public site. Changes apply live." />
+      <div className="cms-card">
+        <div className="section-order-list">
+          {sections.map((s, i) => (
+            <div className="section-order-row" key={s.id}>
+              <div className="section-order-info">
+                <span className="section-order-handle">{String(i + 1).padStart(2, '0')}</span>
+                <span className="section-order-label">{s.label}</span>
+                <span className={`section-order-state${s.visible ? ' on' : ''}`}>{s.visible ? 'Visible' : 'Hidden'}</span>
+              </div>
+              <div className="preview-actions">
+                <button className="btn-icon" disabled={i === 0} onClick={() => move(i, 'up')} title="Move up" type="button">↑</button>
+                <button className="btn-icon" disabled={i === sections.length - 1} onClick={() => move(i, 'down')} title="Move down" type="button">↓</button>
+                <button className={`switch-button${s.visible ? ' on' : ''}`} onClick={() => toggle(i)} type="button"><span /></button>
+              </div>
+            </div>
+          ))}
+          {sections.length === 0 && <EmptyState text="No sections found." />}
+        </div>
+        <div className="cms-actions">
+          <button className="btn-admin" disabled={saving} type="button"
+            onClick={async () => { setSaving(true); try { await onSave() } catch (e) { onError(e instanceof Error ? e.message : 'Save failed.') } finally { setSaving(false) } }}>
+            {saving ? 'Saving…' : 'Save section order'}
+          </button>
+        </div>
+      </div>
+    </>
   )
 }

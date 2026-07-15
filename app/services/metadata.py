@@ -94,8 +94,27 @@ class SqliteMetadataStore:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS contact_messages (
+                    message_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'form',
+                    is_read INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_document_versions_key
                 ON document_versions (logical_document_key, upload_timestamp DESC)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_contact_messages_created
+                ON contact_messages (created_at DESC)
                 """
             )
             # Default settings
@@ -111,6 +130,15 @@ class SqliteMetadataStore:
                     "linkedin": "https://www.linkedin.com/in/raj-sahoo-624439253/",
                     "github": "https://github.com/AlwaysTwilight",
                     "email": "rs1092002@gmail.com",
+                }),)
+            )
+            conn.execute(
+                "INSERT OR IGNORE INTO app_settings (key, value) VALUES ('scheduling', ?)",
+                (json.dumps({
+                    "calLink": "",
+                    "enabled": False,
+                    "headline": "Let's talk",
+                    "subtext": "Book a 30-minute call — pick a time that works and you'll get a Google Meet link automatically.",
                 }),)
             )
 
@@ -460,6 +488,73 @@ class SqliteMetadataStore:
         payload = {k: str(v).strip() for k, v in value.items() if k in allowed}
         self.set_setting("social_links", json.dumps(payload))
 
+    def get_scheduling(self) -> dict[str, Any]:
+        raw = self.get_setting("scheduling", "{}") or "{}"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            return {}
+
+    def set_scheduling(self, value: dict[str, Any]) -> None:
+        payload = {
+            "calLink": str(value.get("calLink") or "").strip(),
+            "enabled": bool(value.get("enabled")),
+            "headline": str(value.get("headline") or "").strip() or "Let's talk",
+            "subtext": str(value.get("subtext") or "").strip(),
+        }
+        self.set_setting("scheduling", json.dumps(payload))
+
+    # ── Contact messages ────────────────────────────────────────────────────
+
+    def create_contact_message(self, name: str, email: str, message: str, source: str = "form") -> dict[str, Any]:
+        message_id = str(uuid.uuid4())
+        created_at = utc_now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO contact_messages (message_id, name, email, message, source, is_read, created_at)
+                VALUES (?, ?, ?, ?, ?, 0, ?)
+                """,
+                (message_id, name.strip(), email.strip(), message.strip(), source, created_at),
+            )
+        return {
+            "message_id": message_id,
+            "name": name.strip(),
+            "email": email.strip(),
+            "message": message.strip(),
+            "source": source,
+            "is_read": False,
+            "created_at": created_at,
+        }
+
+    def list_contact_messages(self, limit: int = 200) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT message_id, name, email, message, source, is_read, created_at
+                FROM contact_messages
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {**dict(row), "is_read": bool(dict(row).get("is_read"))}
+            for row in rows
+        ]
+
+    def mark_contact_message_read(self, message_id: str, is_read: bool = True) -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE contact_messages SET is_read = ? WHERE message_id = ?",
+                (1 if is_read else 0, message_id),
+            )
+
+    def delete_contact_message(self, message_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM contact_messages WHERE message_id = ?", (message_id,))
+
 
 class MongoMetadataStore:
     def __init__(self, mongo_uri: str, db_name: str) -> None:
@@ -756,6 +851,61 @@ class MongoMetadataStore:
         allowed = {"linkedin", "github", "email"}
         payload = {k: str(v).strip() for k, v in value.items() if k in allowed}
         self.set_setting("social_links", json.dumps(payload))
+
+    def get_scheduling(self) -> dict[str, Any]:
+        raw = self.get_setting("scheduling", "{}") or "{}"
+        try:
+            result = json.loads(raw)
+            return result if isinstance(result, dict) else {}
+        except Exception:
+            return {}
+
+    def set_scheduling(self, value: dict[str, Any]) -> None:
+        payload = {
+            "calLink": str(value.get("calLink") or "").strip(),
+            "enabled": bool(value.get("enabled")),
+            "headline": str(value.get("headline") or "").strip() or "Let's talk",
+            "subtext": str(value.get("subtext") or "").strip(),
+        }
+        self.set_setting("scheduling", json.dumps(payload))
+
+    # ── Contact messages ────────────────────────────────────────────────────
+
+    def create_contact_message(self, name: str, email: str, message: str, source: str = "form") -> dict[str, Any]:
+        message_id = str(uuid.uuid4())
+        created_at = utc_now_iso()
+        doc = {
+            "_id": message_id,
+            "name": name.strip(),
+            "email": email.strip(),
+            "message": message.strip(),
+            "source": source,
+            "is_read": False,
+            "created_at": created_at,
+        }
+        self._db["contact_messages"].insert_one(dict(doc))
+        return {**doc, "message_id": message_id}
+
+    def list_contact_messages(self, limit: int = 200) -> list[dict[str, Any]]:
+        rows = list(self._db["contact_messages"].find().sort([("created_at", -1)]).limit(limit))
+        return [
+            {
+                "message_id": str(row.get("_id") or ""),
+                "name": str(row.get("name") or ""),
+                "email": str(row.get("email") or ""),
+                "message": str(row.get("message") or ""),
+                "source": str(row.get("source") or "form"),
+                "is_read": bool(row.get("is_read", False)),
+                "created_at": str(row.get("created_at") or ""),
+            }
+            for row in rows
+        ]
+
+    def mark_contact_message_read(self, message_id: str, is_read: bool = True) -> None:
+        self._db["contact_messages"].update_one({"_id": message_id}, {"$set": {"is_read": is_read}})
+
+    def delete_contact_message(self, message_id: str) -> None:
+        self._db["contact_messages"].delete_one({"_id": message_id})
 
     # ── Portfolio projects ──────────────────────────────────────────────────
 

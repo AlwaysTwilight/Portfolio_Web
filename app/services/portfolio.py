@@ -396,6 +396,7 @@ class PortfolioService:
             )
             seen_titles.add(key)
         social_links = metadata_store.get_social_links()
+        scheduling = self._get_scheduling()
         return {
             "profile": {
                 **header,
@@ -415,7 +416,61 @@ class PortfolioService:
             },
             "projects": projects,
             "documents": metadata_store.list_documents(),
+            "scheduling": scheduling,
+            "sections": self._get_sections(),
         }
+
+    def _get_scheduling(self) -> dict[str, Any]:
+        getter = getattr(metadata_store, "get_scheduling", None)
+        raw = getter() if callable(getter) else {}
+        return {
+            "calLink": str(raw.get("calLink") or "").strip(),
+            "enabled": bool(raw.get("enabled")),
+            "headline": str(raw.get("headline") or "").strip() or "Let's talk",
+            "subtext": str(raw.get("subtext") or "").strip(),
+        }
+
+    # Section visibility + ordering, admin-configurable via the `sections` setting.
+    DEFAULT_SECTIONS = [
+        {"id": "projects", "label": "Projects", "visible": True},
+        {"id": "experience", "label": "Experience", "visible": True},
+        {"id": "skills", "label": "Skills", "visible": True},
+        {"id": "scheduling", "label": "Schedule a call", "visible": True},
+        {"id": "contact", "label": "Contact", "visible": True},
+    ]
+
+    def _get_sections(self) -> list[dict[str, Any]]:
+        getter = getattr(metadata_store, "get_setting", None)
+        raw = getter("sections", "") if callable(getter) else ""
+        try:
+            import json as _json
+
+            parsed = _json.loads(raw) if raw else []
+        except Exception:
+            parsed = []
+        if not isinstance(parsed, list) or not parsed:
+            return [dict(s) for s in self.DEFAULT_SECTIONS]
+        # Merge stored config over defaults so new sections always appear.
+        by_id = {str(s.get("id")): s for s in parsed if isinstance(s, dict) and s.get("id")}
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for stored in parsed:
+            if not isinstance(stored, dict):
+                continue
+            sid = str(stored.get("id") or "")
+            default = next((d for d in self.DEFAULT_SECTIONS if d["id"] == sid), None)
+            if not default or sid in seen:
+                continue
+            merged.append({
+                "id": sid,
+                "label": str(stored.get("label") or default["label"]),
+                "visible": bool(stored.get("visible", True)),
+            })
+            seen.add(sid)
+        for default in self.DEFAULT_SECTIONS:
+            if default["id"] not in seen:
+                merged.append(dict(default))
+        return merged
 
 
 portfolio_service = PortfolioService()

@@ -34,6 +34,19 @@ type SocialLinks = {
   email?: string
 }
 
+type Scheduling = {
+  calLink?: string
+  enabled?: boolean
+  headline?: string
+  subtext?: string
+}
+
+type SectionConfig = {
+  id: string
+  label: string
+  visible: boolean
+}
+
 type PortfolioPayload = {
   profile: {
     name: string
@@ -50,9 +63,22 @@ type PortfolioPayload = {
     socialLinks?: SocialLinks
   }
   projects: ProjectCard[]
+  scheduling?: Scheduling
+  sections?: SectionConfig[]
 }
 
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
+
+// Conversational contact-capture state machine for the chatbot.
+type ContactFlow = {
+  active: boolean
+  step: 'name' | 'email' | 'message' | 'confirm' | null
+  name: string
+  email: string
+  message: string
+}
+const EMPTY_CONTACT_FLOW: ContactFlow = { active: false, step: null, name: '', email: '', message: '' }
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -62,6 +88,15 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init)
   if (!res.ok) throw new Error(await res.text())
   return res.json() as Promise<T>
+}
+
+// Accepts "raj-sahoo", "cal.com/raj-sahoo", or a full https URL and returns a usable URL.
+function normalizeCalUrl(raw: string): string {
+  const v = (raw || '').trim().replace(/^@/, '')
+  if (!v) return ''
+  if (/^https?:\/\//i.test(v)) return v
+  if (/^cal\.com\//i.test(v) || v.includes('calendly.com')) return `https://${v}`
+  return `https://cal.com/${v}`
 }
 
 // ─── Typewriter hook ──────────────────────────────────────────────────────────
@@ -183,6 +218,18 @@ export default function PortfolioPage() {
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLInputElement>(null)
 
+  // Contact form state
+  const [contactName, setContactName] = useState('')
+  const [contactEmail, setContactEmail] = useState('')
+  const [contactMessage, setContactMessage] = useState('')
+  const [contactStatus, setContactStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
+  const [contactError, setContactError] = useState('')
+
+  // Conversational contact capture (chatbot)
+  const [contactFlow, setContactFlow] = useState<ContactFlow>(EMPTY_CONTACT_FLOW)
+  const contactFlowRef = useRef<ContactFlow>(EMPTY_CONTACT_FLOW)
+  useEffect(() => { contactFlowRef.current = contactFlow }, [contactFlow])
+
   const name = portfolio?.profile.name ?? 'Raj Sahoo'
   const headline = portfolio?.profile.headline ?? 'AI/ML Software Developer'
   const { displayed: typedName } = useTypewriter(name, 55)
@@ -223,12 +270,51 @@ export default function PortfolioPage() {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
 
+  // ── Contact-intent detection ──
+  function looksLikeContactIntent(text: string): boolean {
+    const t = text.toLowerCase()
+    return /\b(contact|reach|get in touch|email|hire|work with|message (raj|him)|leave a message|pass (this |a )?message|tell raj|connect with)\b/.test(t)
+      && !/\bproject|experience|skill|resume|stack|tech\b/.test(t)
+  }
+  function looksLikeMeetingIntent(text: string): boolean {
+    const t = text.toLowerCase()
+    return /\b(schedule|book|meeting|call|meet|calendar|appointment|available|availability)\b/.test(t)
+  }
+
+  function pushAssistant(prev: ChatMessage[], content: string) {
+    setMessages([...prev, { role: 'assistant', content }])
+  }
+
   // ── Chat ──
   async function send() {
     const msg = chatInput.trim()
     if (!msg || chatting) return
     const next: ChatMessage[] = [...messages, { role: 'user', content: msg }]
-    setMessages(next); setChatInput(''); setChatting(true)
+    setMessages(next); setChatInput('')
+
+    // 1) If a contact-capture flow is in progress, handle it locally (no LLM call).
+    const flow = contactFlowRef.current
+    if (flow.active && flow.step) {
+      handleContactFlowStep(msg, next)
+      return
+    }
+
+    // 2) Detect meeting intent → surface booking link if configured.
+    if (looksLikeMeetingIntent(msg) && schedulingEnabled) {
+      const link = normalizeCalUrl(scheduling.calLink!)
+      pushAssistant(next, `You can book a time with Raj here — it checks his live calendar availability and sends a Google Meet link automatically:\n\n${link}`)
+      return
+    }
+
+    // 3) Detect contact intent → start conversational capture.
+    if (looksLikeContactIntent(msg)) {
+      setContactFlow({ active: true, step: 'name', name: '', email: '', message: '' })
+      pushAssistant(next, "I'd be happy to pass a message to Raj. What's your name?")
+      return
+    }
+
+    // 4) Otherwise, normal RAG chat.
+    setChatting(true)
     try {
       const history = messages.slice(1).map(m => ({ role: m.role, content: m.content }))
       const r = await apiFetch<{ answer: string }>('/chat', {
@@ -245,6 +331,46 @@ export default function PortfolioPage() {
     } finally { setChatting(false) }
   }
 
+  // ── Conversational contact capture steps ──
+  function handleContactFlowStep(msg: string, history: ChatMessage[]) {
+    const flow = contactFlowRef.current
+    if (flow.step === 'name') {
+      const name = msg.trim()
+      if (name.length < 2) { pushAssistant(history, "Could you share your name so Raj knows who reached out?"); return }
+      setContactFlow({ ...flow, name, step: 'email' })
+      pushAssistant(history, `Thanks, ${name}! What's the best email to reach you at?`)
+      return
+    }
+    if (flow.step === 'email') {
+      const email = msg.trim()
+      if (!EMAIL_RE.test(email)) { pushAssistant(history, "That doesn't look like a valid email — mind trying again?"); return }
+      setContactFlow({ ...flow, email, step: 'message' })
+      pushAssistant(history, "Great. What would you like to say to Raj?")
+      return
+    }
+    if (flow.step === 'message') {
+      const message = msg.trim()
+      if (message.length < 2) { pushAssistant(history, "Go ahead and type your message and I'll send it along."); return }
+      const finalFlow = { ...flow, message }
+      setContactFlow({ ...finalFlow, step: 'confirm' })
+      void deliverChatContact(finalFlow, history)
+      return
+    }
+  }
+
+  async function deliverChatContact(flow: ContactFlow, history: ChatMessage[]) {
+    setChatting(true)
+    try {
+      await submitContact({ name: flow.name, email: flow.email, message: flow.message, source: 'chat' })
+      pushAssistant(history, `Done — I've sent your message to Raj. He'll reply to ${flow.email}.${schedulingEnabled ? ` If you'd rather meet, you can also book a call: ${normalizeCalUrl(scheduling.calLink!)}` : ''}`)
+    } catch {
+      pushAssistant(history, `I couldn't send that just now. You can email Raj directly at ${socialLinks.email || 'his listed email'}.`)
+    } finally {
+      setChatting(false)
+      setContactFlow(EMPTY_CONTACT_FLOW)
+    }
+  }
+
   const profile = portfolio?.profile
   const projects = (portfolio?.projects ?? []).filter(p => p.isVisible !== false)
   const skills = profile?.skills ?? []
@@ -253,6 +379,51 @@ export default function PortfolioPage() {
   const desiredLoc = profile?.desiredLocations ?? []
 
   const socialLinks = profile?.socialLinks ?? {}
+  const scheduling = portfolio?.scheduling ?? {}
+  const schedulingEnabled = Boolean(scheduling.enabled && scheduling.calLink)
+
+  // Section visibility + ordering (admin-configurable). Falls back to a sensible default order.
+  const sectionConfig: SectionConfig[] = portfolio?.sections ?? [
+    { id: 'projects', label: 'Projects', visible: true },
+    { id: 'experience', label: 'Experience', visible: true },
+    { id: 'skills', label: 'Skills', visible: true },
+    { id: 'scheduling', label: 'Schedule a call', visible: true },
+    { id: 'contact', label: 'Contact', visible: true },
+  ]
+  const isSectionOn = useCallback(
+    (id: string) => sectionConfig.find(s => s.id === id)?.visible !== false,
+    [sectionConfig]
+  )
+
+  // ── Contact form submit ──
+  const submitContact = useCallback(async (payload: { name: string; email: string; message: string; source?: string }) => {
+    const res = await apiFetch<{ ok: boolean; stored: boolean; emailed: boolean }>('/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...payload, source: payload.source ?? 'form' }),
+    })
+    return res
+  }, [])
+
+  async function handleContactSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setContactError('')
+    const name = contactName.trim()
+    const email = contactEmail.trim()
+    const message = contactMessage.trim()
+    if (!name) { setContactError('Please enter your name.'); return }
+    if (!EMAIL_RE.test(email)) { setContactError('Please enter a valid email.'); return }
+    if (message.length < 2) { setContactError('Please write a short message.'); return }
+    setContactStatus('sending')
+    try {
+      await submitContact({ name, email, message, source: 'form' })
+      setContactStatus('sent')
+      setContactName(''); setContactEmail(''); setContactMessage('')
+    } catch {
+      setContactStatus('error')
+      setContactError('Something went wrong — please email directly instead.')
+    }
+  }
 
   // ── Category icons (SVG) ──
   const catIconSvg: Record<string, React.ReactNode> = {
@@ -319,11 +490,18 @@ export default function PortfolioPage() {
           </button>
 
           <nav className="nav-links" role="navigation">
-            {(['projects', 'experience', 'skills'] as const).map(id => (
+            {(['projects', 'experience', 'skills'] as const)
+              .filter(id => isSectionOn(id))
+              .map(id => (
               <button key={id} className="nav-pill" onClick={() => scrollTo(id)} type="button">
                 {id}
               </button>
             ))}
+            {isSectionOn('contact') && (
+              <button className="nav-pill" onClick={() => scrollTo('contact')} type="button">
+                contact
+              </button>
+            )}
           </nav>
 
           <div className="nav-right">
@@ -466,7 +644,7 @@ export default function PortfolioPage() {
         {/* ══════════════════════════════════════════
             PROJECTS
         ══════════════════════════════════════════ */}
-        {projects.length > 0 && (
+        {isSectionOn('projects') && projects.length > 0 && (
           <RevealSection id="projects" className="section">
             <SectionLabel index="01" title="Projects" sub={`${projects.length} shipped`} />
             <div className="projects-grid">
@@ -502,6 +680,7 @@ export default function PortfolioPage() {
         {/* ══════════════════════════════════════════
             EXPERIENCE
         ══════════════════════════════════════════ */}
+        {isSectionOn('experience') && (
         <RevealSection id="experience" className="section">
           <SectionLabel index="02" title="Experience" sub={experience.length > 0 ? `${experience.length} role${experience.length === 1 ? '' : 's'}` : ''} />
           <div className="timeline">
@@ -543,10 +722,12 @@ export default function PortfolioPage() {
             )}
           </div>
         </RevealSection>
+        )}
 
         {/* ══════════════════════════════════════════
             SKILLS
         ══════════════════════════════════════════ */}
+        {isSectionOn('skills') && (
         <RevealSection id="skills" className="section">
           <SectionLabel index="03" title="Skills" sub={`${skills.reduce((n, s) => n + s.items.length, 0)} tools`} />
           <div className="skills-grid">
@@ -568,6 +749,106 @@ export default function PortfolioPage() {
             )}
           </div>
         </RevealSection>
+        )}
+
+        {/* ══════════════════════════════════════════
+            SCHEDULE A CALL
+        ══════════════════════════════════════════ */}
+        {isSectionOn('scheduling') && schedulingEnabled && (
+          <RevealSection id="scheduling" className="section">
+            <SectionLabel index="04" title={scheduling.headline || 'Schedule a call'} sub="live availability" />
+            <div className="schedule-card">
+              <div className="schedule-copy">
+                <p className="schedule-text">
+                  {scheduling.subtext || "Book a 30-minute call — pick a time that works and you'll get a Google Meet link automatically."}
+                </p>
+                <a
+                  className="btn-primary schedule-btn"
+                  href={normalizeCalUrl(scheduling.calLink!)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" />
+                  </svg>
+                  Book a time
+                </a>
+              </div>
+            </div>
+          </RevealSection>
+        )}
+
+        {/* ══════════════════════════════════════════
+            CONTACT
+        ══════════════════════════════════════════ */}
+        {isSectionOn('contact') && (
+          <RevealSection id="contact" className="section">
+            <SectionLabel index="05" title="Get in touch" sub="let's build something" />
+            <div className="contact-wrap">
+              <div className="contact-intro">
+                <p className="contact-lead">
+                  Have a role, a project, or just a question? Drop a message and I'll get back to you.
+                </p>
+                <div className="contact-links">
+                  {socialLinks.email && (
+                    <a href={`mailto:${socialLinks.email}`} className="contact-link-chip">
+                      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 6-10 7L2 6"/></svg>
+                      {socialLinks.email}
+                    </a>
+                  )}
+                  {socialLinks.linkedin && (
+                    <a href={socialLinks.linkedin} target="_blank" rel="noopener noreferrer" className="contact-link-chip">
+                      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7h-4v-7a6 6 0 0 1 6-6z"/><rect x="2" y="9" width="4" height="12"/><circle cx="4" cy="4" r="2"/></svg>
+                      LinkedIn
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {contactStatus === 'sent' ? (
+                <div className="contact-success" role="status">
+                  <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg>
+                  <h3>Message sent!</h3>
+                  <p>Thanks for reaching out — I'll reply soon.</p>
+                  <button className="btn-ghost" type="button" onClick={() => setContactStatus('idle')}>Send another</button>
+                </div>
+              ) : (
+                <form className="contact-form" onSubmit={handleContactSubmit}>
+                  <div className="contact-row">
+                    <label className="contact-field">
+                      <span>Name</span>
+                      <input
+                        type="text" value={contactName}
+                        onChange={e => setContactName(e.target.value)}
+                        placeholder="Your name" autoComplete="name" required
+                      />
+                    </label>
+                    <label className="contact-field">
+                      <span>Email</span>
+                      <input
+                        type="email" value={contactEmail}
+                        onChange={e => setContactEmail(e.target.value)}
+                        placeholder="you@example.com" autoComplete="email" required
+                      />
+                    </label>
+                  </div>
+                  <label className="contact-field">
+                    <span>Message</span>
+                    <textarea
+                      value={contactMessage}
+                      onChange={e => setContactMessage(e.target.value)}
+                      placeholder="What's on your mind?" rows={5} required
+                    />
+                  </label>
+                  {contactError && <p className="contact-error" role="alert">{contactError}</p>}
+                  <button className="btn-primary contact-submit" type="submit" disabled={contactStatus === 'sending'}>
+                    {contactStatus === 'sending' ? 'Sending…' : 'Send message'}
+                  </button>
+                </form>
+              )}
+            </div>
+          </RevealSection>
+        )}
 
         {/* ══════════════════════════════════════════
             FOOTER

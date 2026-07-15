@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, status
@@ -10,6 +11,7 @@ from app.config import settings
 from app.models import ChatRequest, ChatResponse, DocumentSummary, DocumentVersion, HealthResponse, IngestRequest, UploadResponse
 from app.services.ai_rewrite import ai_rewrite_service
 from app.services.chat import chat_service
+from app.services.email import email_service
 from app.services.ingestion import ingestion_service
 from app.services.metadata import metadata_store
 from app.services.portfolio import portfolio_service
@@ -60,6 +62,40 @@ class SocialLinksRequest(BaseModel):
     linkedin: str = ""
     github: str = ""
     email: str = ""
+
+
+class ContactRequest(BaseModel):
+    name: str
+    email: str
+    message: str
+    source: str = "form"
+
+
+class SchedulingRequest(BaseModel):
+    calLink: str = ""
+    enabled: bool = False
+    headline: str = "Let's talk"
+    subtext: str = ""
+
+
+class SectionsRequest(BaseModel):
+    sections: list[dict] = []
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _validate_contact(name: str, email: str, message: str) -> tuple[str, str, str]:
+    name = (name or "").strip()
+    email = (email or "").strip()
+    message = (message or "").strip()
+    if not name or len(name) > 120:
+        raise HTTPException(status_code=422, detail="Please provide a valid name.")
+    if not email or not _EMAIL_RE.match(email) or len(email) > 200:
+        raise HTTPException(status_code=422, detail="Please provide a valid email address.")
+    if len(message) < 2 or len(message) > 4000:
+        raise HTTPException(status_code=422, detail="Message must be between 2 and 4000 characters.")
+    return name, email, message
 
 
 class RewriteRequest(BaseModel):
@@ -138,6 +174,26 @@ def portfolio() -> dict:
     return portfolio_service.get_portfolio_payload()
 
 
+@app.get('/scheduling')
+def get_scheduling() -> dict:
+    getter = getattr(metadata_store, "get_scheduling", None)
+    return getter() if callable(getter) else {"calLink": "", "enabled": False, "headline": "Let's talk", "subtext": ""}
+
+
+@app.post('/contact')
+def submit_contact(request: ContactRequest) -> dict:
+    name, email, message = _validate_contact(request.name, request.email, request.message)
+    source = "chat" if request.source == "chat" else "form"
+    creator = getattr(metadata_store, "create_contact_message", None)
+    stored = creator(name, email, message, source) if callable(creator) else None
+    delivery = email_service.send_contact_notification(name, email, message, source)
+    return {
+        "ok": True,
+        "stored": bool(stored),
+        "emailed": bool(delivery.get("sent")),
+    }
+
+
 @app.get("/admin/settings")
 def get_admin_settings() -> dict:
     return {
@@ -188,6 +244,73 @@ def update_social_links(request: SocialLinksRequest, x_admin_token: str | None =
     _require_admin(x_admin_token)
     metadata_store.set_social_links({"linkedin": request.linkedin, "github": request.github, "email": request.email})
     return metadata_store.get_social_links()
+
+
+@app.get("/admin/scheduling")
+def admin_get_scheduling(x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    getter = getattr(metadata_store, "get_scheduling", None)
+    return getter() if callable(getter) else {}
+
+
+@app.put("/admin/scheduling")
+def admin_set_scheduling(request: SchedulingRequest, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    setter = getattr(metadata_store, "set_scheduling", None)
+    if callable(setter):
+        setter(request.model_dump())
+    getter = getattr(metadata_store, "get_scheduling", None)
+    return getter() if callable(getter) else {}
+
+
+@app.get("/admin/sections")
+def admin_get_sections(x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    return {"sections": portfolio_service._get_sections()}
+
+
+@app.put("/admin/sections")
+def admin_set_sections(request: SectionsRequest, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    import json as _json
+
+    allowed_ids = {s["id"] for s in portfolio_service.DEFAULT_SECTIONS}
+    cleaned = [
+        {
+            "id": str(s.get("id")),
+            "label": str(s.get("label") or "").strip(),
+            "visible": bool(s.get("visible", True)),
+        }
+        for s in request.sections
+        if isinstance(s, dict) and str(s.get("id")) in allowed_ids
+    ]
+    metadata_store.set_setting("sections", _json.dumps(cleaned))
+    return {"sections": portfolio_service._get_sections()}
+
+
+@app.get("/admin/messages")
+def admin_list_messages(x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    lister = getattr(metadata_store, "list_contact_messages", None)
+    return {"messages": lister() if callable(lister) else []}
+
+
+@app.put("/admin/messages/{message_id}/read")
+def admin_mark_message_read(message_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    marker = getattr(metadata_store, "mark_contact_message_read", None)
+    if callable(marker):
+        marker(message_id, True)
+    return {"ok": True}
+
+
+@app.delete("/admin/messages/{message_id}")
+def admin_delete_message(message_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    deleter = getattr(metadata_store, "delete_contact_message", None)
+    if callable(deleter):
+        deleter(message_id)
+    return {"deleted": True}
 
 
 @app.post("/admin/ai/rewrite")

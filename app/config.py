@@ -48,6 +48,9 @@ class Settings:
     fallback_embedding_model: str = os.getenv('FALLBACK_EMBEDDING_MODEL', 'BAAI/bge-base-en-v1.5')
     admin_token: str = os.getenv('ADMIN_TOKEN', '')
     database_url: str = os.getenv('DATABASE_URL', '')
+    resend_api_key: str = os.getenv('RESEND_API_KEY', '')
+    contact_notify_email: str = os.getenv('CONTACT_NOTIFY_EMAIL', 'rs1092002@gmail.com')
+    contact_from_email: str = os.getenv('CONTACT_FROM_EMAIL', 'onboarding@resend.dev')
     mongodb_uri: str = os.getenv('MONGODB_URI', '')
     mongodb_db: str = os.getenv('MONGODB_DB', 'portfolio')
     cors_allow_origins: list[str] = field(

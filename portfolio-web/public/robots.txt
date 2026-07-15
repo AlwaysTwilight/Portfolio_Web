@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://portfolio-web-five-tawny.vercel.app/sitemap.xml
