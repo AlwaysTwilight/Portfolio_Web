@@ -1,4 +1,29 @@
+# Raj Sahoo — AI/ML Engineer portfolio
+# All crawlers welcome to index everything.
+
 User-agent: *
+Allow: /
+
+# Major search + AI crawlers (explicit allow)
+User-agent: Googlebot
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+User-agent: GPTBot
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: ClaudeBot
 Allow: /
 
 Sitemap: https://portfolio-web-five-tawny.vercel.app/sitemap.xml
