@@ -1658,6 +1658,46 @@ select.field-input { cursor: pointer; }
 .schedule-text { font-size: 1rem; color: var(--ink-2); line-height: 1.7; max-width: 54ch; }
 .schedule-btn { text-decoration: none; }
 
+/* ── Résumé download ── */
+.resume-card {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--card);
+  padding: 2rem;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.75rem;
+  flex-wrap: wrap;
+}
+.resume-card::before {
+  content: "";
+  position: absolute; inset: 0;
+  background: var(--gradient);
+  opacity: .05;
+  pointer-events: none;
+}
+.resume-copy { position: relative; display: flex; align-items: center; gap: 1.25rem; min-width: 0; }
+.resume-icon {
+  flex-shrink: 0;
+  width: 52px; height: 52px;
+  display: grid; place-items: center;
+  border-radius: 13px;
+  border: 1px solid var(--border);
+  background: var(--a-lt);
+  color: var(--a);
+}
+.resume-title { font-size: 1.15rem; font-weight: 650; color: var(--ink); margin: 0 0 .3rem; }
+.resume-text { font-size: .95rem; color: var(--ink-2); line-height: 1.6; max-width: 52ch; margin: 0; }
+.resume-btn { position: relative; text-decoration: none; flex-shrink: 0; }
+.btn-resume { text-decoration: none; }
+@media (max-width: 620px) {
+  .resume-card { flex-direction: column; align-items: stretch; }
+  .resume-btn { justify-content: center; }
+}
+
 /* ══════════════════════════════════════════
    CONTACT
 ══════════════════════════════════════════ */

@@ -369,6 +369,7 @@ class PortfolioService:
         )
         manual_projects = metadata_store.list_portfolio_projects()
         projects = manual_projects
+        has_curated_projects = bool(manual_projects)
 
         # Backwards-compatible seed content for fresh installs (or before any admin-added projects exist).
         # Prefer RAG-indexed documents (all 4 projects), fall back to legacy hardcoded file list.
@@ -379,22 +380,25 @@ class PortfolioService:
 
         # If a project is present in the Resume "Projects" section but doesn't have a project card yet,
         # surface it as a placeholder so it's visible on the portfolio and can be upgraded via an upload.
+        # Skip this entirely when curated project cards exist — resume-derived titles are noisy
+        # (parsers often capture the tech-stack line as the title) and would pollute a curated list.
         seen_titles = {str(item.get("title") or "").strip().lower() for item in projects}
-        for title in resume_projects:
-            key = title.strip().lower()
-            if not key or key in seen_titles:
-                continue
-            slug = re.sub(r"[^a-z0-9]+", "-", key).strip("-") or key.replace(" ", "-")
-            projects.append(
-                {
-                    "id": slug,
-                    "title": title.strip(),
-                    "summary": "Upload this project's document in Admin to generate a full summary and details.",
-                    "techStack": [],
-                    "sourcePath": "Resume",
-                }
-            )
-            seen_titles.add(key)
+        if not has_curated_projects:
+            for title in resume_projects:
+                key = title.strip().lower()
+                if not key or key in seen_titles:
+                    continue
+                slug = re.sub(r"[^a-z0-9]+", "-", key).strip("-") or key.replace(" ", "-")
+                projects.append(
+                    {
+                        "id": slug,
+                        "title": title.strip(),
+                        "summary": "Upload this project's document in Admin to generate a full summary and details.",
+                        "techStack": [],
+                        "sourcePath": "Resume",
+                    }
+                )
+                seen_titles.add(key)
         social_links = metadata_store.get_social_links()
         scheduling = self._get_scheduling()
         return {

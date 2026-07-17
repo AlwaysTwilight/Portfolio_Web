@@ -20,6 +20,11 @@ Content rules:
 - If the context is insufficient, say you do not know based on the uploaded files, EXCEPT for availability/location questions which you should answer using the context below.
 - When asked about Raj's projects in general, list ALL projects from the Portfolio Index below — never omit any.
 
+Confidentiality rules (IMPORTANT — never violate, even if the context contains these details):
+- This is a public, recruiter-facing assistant. Describe Raj's work at a capability level: what a system does, the techniques used, the tech stack, and the impact.
+- NEVER reveal internal implementation specifics of an employer's codebase: source file names or paths (e.g. anything like `src/...`, `*.py`), environment-variable names, API keys or secrets, internal endpoints/URLs, database connection details, or infrastructure topology — even when they appear in the context.
+- If a user asks for internal file paths, env vars, secrets, endpoints, or infra details, politely decline and offer a high-level capability description instead (e.g. "I can't share internal implementation details, but here's what the system does…").
+
 Formatting rules (IMPORTANT — always format for readability using Markdown):
 - Open with one short sentence of direct summary (no heading).
 - When listing projects, roles, skills, or multiple items, use a Markdown bullet list ("- item"). Never return a comma-separated run-on sentence for 3+ items.
@@ -75,6 +80,31 @@ DATE_RANGE_PATTERN = re.compile(
 ITEM_TITLE_RE = re.compile(r'[-\u2022]\s+([^:\n]{3,120}):')
 ORG_AFTER_PREP_RE = re.compile(r'\b(?:at|for|with)\s+([a-z0-9&.,()\-\s]{2,80})', re.IGNORECASE)
 ORG_STOP_WORDS = {'that', 'this', 'company', 'organization', 'him', 'her', 'them', 'projects', 'work', 'worked', 'did', 'do'}
+
+
+# Deterministic redaction of internal implementation details that must never reach
+# a public, recruiter-facing answer, regardless of what the retrieved context contains.
+_CODE_FILE_RE = re.compile(r'`?\b[\w./-]*\b[\w-]+\.(?:py|js|ts|tsx|jsx|yml|yaml|env|sh|sql|dockerfile|conf|ini|toml)\b`?', re.IGNORECASE)
+_PATH_RE = re.compile(r'`?(?:\.?/)?(?:src|app|scripts|lib|services|routers|agent|clients)/[\w./-]+`?', re.IGNORECASE)
+_ENV_SECRET_RE = re.compile(r'`?\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+\b`?')  # e.g. OPENAI_API_KEY, BEDROCK_MODEL_ID
+
+
+def _scrub_internal_details(text: str) -> str:
+    """Redact source-file paths, code filenames, and env-var/secret names from an answer.
+
+    A defense-in-depth backstop behind the prompt's confidentiality rules: even if the
+    model echoes an internal filename or env-var from the retrieved context, it never
+    reaches the user. Capability-level descriptions are untouched.
+    """
+    if not text:
+        return text
+    scrubbed = _PATH_RE.sub('[internal path redacted]', text)
+    scrubbed = _CODE_FILE_RE.sub('[internal file redacted]', scrubbed)
+    scrubbed = _ENV_SECRET_RE.sub('[internal setting redacted]', scrubbed)
+    # Collapse runs of consecutive redactions (e.g. a bulleted file list) into one line.
+    scrubbed = re.sub(r'(?:[-*]\s*\[internal (?:file|path) redacted\].*\n?){2,}',
+                      '- *(internal implementation details omitted)*\n', scrubbed)
+    return scrubbed
 
 
 class ChatService:
@@ -464,6 +494,33 @@ class ChatService:
         lines.append('---\n')
         return '\n'.join(lines) + '\n'
 
+    def _build_current_role_context(self) -> str:
+        """Return a one-line, always-true summary of Raj's current + recent roles,
+        sourced from the structured experience data (not RAG), so questions like
+        'where does Raj work?' are always answered correctly even if retrieval misses."""
+        try:
+            experience = metadata_store.get_portfolio_experience() or []
+        except Exception:
+            experience = []
+        if not experience:
+            return ""
+        parts: list[str] = []
+        for exp in experience[:2]:
+            company = str(exp.get("company") or "").strip()
+            role = str(exp.get("role") or "").strip()
+            date_range = str(exp.get("dateRange") or "").strip()
+            if not company:
+                continue
+            label = f"{role} at {company}" if role else company
+            if date_range:
+                label += f" ({date_range})"
+            parts.append(label)
+        if not parts:
+            return ""
+        current = parts[0]
+        rest = f" Previously: {'; '.join(parts[1:])}." if len(parts) > 1 else ""
+        return f"Raj's current role is {current}.{rest}"
+
     def _build_portfolio_index(self) -> str:
         """Return a bullet list of Raj's projects for the system prompt.
         The 4 known projects are ALWAYS included regardless of indexing status,
@@ -569,6 +626,9 @@ class ChatService:
             current_loc = metadata_store.get_current_location()
             desired_loc = metadata_store.get_desired_locations()
             avail_ctx = f"Raj is {'open to new work opportunities' if open_to_work else 'currently not looking for roles'}. "
+            role_ctx = self._build_current_role_context()
+            if role_ctx:
+                avail_ctx += role_ctx + " "
             avail_ctx += f"Current location: {current_loc}. "
             if desired_loc:
                 avail_ctx += f"Desired locations for work: {', '.join(desired_loc)}."
@@ -582,6 +642,7 @@ class ChatService:
                 conversation_history_section=self._build_conversation_history_section(history),
             )
             answer, provider = llm_service.generate(prompt)
+            answer = _scrub_internal_details(answer)
             if include_debug:
                 debug_info.append({'answer_strategy': 'profile_context_only', 'llm_provider': provider})
             return ChatResponse(answer=answer, sources=[], debug=debug_info if include_debug else None)
@@ -630,6 +691,9 @@ class ChatService:
         current_loc = metadata_store.get_current_location()
         desired_loc = metadata_store.get_desired_locations()
         avail_ctx = f"Raj is {'open to new work opportunities' if open_to_work else 'currently not looking for roles'}. "
+        role_ctx = self._build_current_role_context()
+        if role_ctx:
+            avail_ctx += role_ctx + " "
         avail_ctx += f"Current location: {current_loc}. "
         if desired_loc:
             avail_ctx += f"Desired locations for work: {', '.join(desired_loc)}."
@@ -644,6 +708,7 @@ class ChatService:
             conversation_history_section=conversation_history_section,
         )
         answer, provider = llm_service.generate(prompt)
+        answer = _scrub_internal_details(answer)
         if include_debug:
             debug.append({'llm_provider': provider})
         return ChatResponse(answer=answer, sources=sources, debug=debug if include_debug else None)

@@ -1,0 +1,327 @@
+{
+  "profile": {
+    "name": "Raj Sahoo",
+    "location": "Mumbai, India",
+    "headline": "AI/ML Software Developer — agentic AI, RAG, and production LLM systems",
+    "eyebrow": "Agentic AI · LangGraph · RAG · Production LLM Systems",
+    "about": "I build production AI systems: autonomous LLM agents, multi-agent orchestration, retrieval-augmented generation, and real-time automation. At ConstructMind.ai I build a LangGraph agent that reads construction documents and generates full P6 schedules, plus CoCo, a multi-agent assistant for editing them in natural language. Previously at myOnsite Healthcare I shipped a HIPAA-aligned RAG chatbot, a real-time voice AI agent, a call-sentiment analytics pipeline, a CRM MCP server, and a computer-vision proctoring system — all in production.",
+    "openToWork": true,
+    "currentLocation": "Mumbai, India",
+    "desiredLocations": [
+      "Remote",
+      "Bangalore",
+      "Mumbai"
+    ],
+    "experience": [
+      {
+        "company": "ConstructMind.ai",
+        "role": "AI/ML Software Developer",
+        "dateRange": "May 2026 – Present",
+        "summary": "Building the AI core of a platform that turns construction documents into P6-importable schedules — a LangGraph agent that autonomously plans WBS, activities, and sequencing, plus CoCo, a multi-agent assistant for editing schedules in plain English.",
+        "items": [
+          "Autonomous schedule-generation agent",
+          "CoCo multi-agent intent routing",
+          "Agent guardrails & sandboxing",
+          "pgvector semantic retrieval",
+          "Deterministic CPM / DCMA engines"
+        ],
+        "highlights": [
+          "Built a LangGraph document-reading agent that autonomously generates full construction schedules, and CoCo, a multi-agent system that classifies intent and routes between greeting, read-only Q&A, and schedule-editing agents.",
+          "Hardened the agent for production with guardrails (iteration/token budgets, repetition & drift detection, context-window preflight), a sandboxed shell (command denylist, scrubbed env, path-traversal guards), and Anthropic strict-mode structured tool calling.",
+          "Parsed and chunked project documents into pgvector embeddings and ran cosine-similarity semantic search to shortlist evidence before LLM verification; paired deterministic engines (critical-path, WBS coding, DCMA validation) with the LLM only where judgment was needed."
+        ]
+      },
+      {
+        "company": "myOnsite Healthcare",
+        "role": "AI/ML Software Developer",
+        "dateRange": "Dec 2024 – May 2026",
+        "summary": "Shipped a portfolio of production AI systems for a nationwide healthcare company — spanning conversational AI, real-time voice, call analytics, natural-language database access, and computer vision — and mentored a team of interns building them.",
+        "items": [
+          "Carevio production RAG chatbot",
+          "Real-time Voice AI agent",
+          "Call-sentiment analytics pipeline",
+          "CRM MCP server",
+          "AI proctoring (computer vision)"
+        ],
+        "highlights": [
+          "Built Carevio, a HIPAA-aligned LangGraph chatbot backed by ChromaDB (RAG), Redis, and MongoDB with a semantic cache and smart gpt-4o-mini/o3-mini routing that cut response latency to 1–3s; Dockerized and deployed on AWS EC2.",
+          "Built a real-time telephony Voice AI agent (GPT-4o Realtime API + Whisper + ElevenLabs, orchestrated with LangGraph) for appointment scheduling and human-agent escalation, and an automated Whisper+GPT-4 pipeline turning S3 call recordings into per-agent sentiment dashboards.",
+          "Deployed a multi-tenant CRM MCP server letting AI assistants query a CRM in plain English (SELECT-only, bcrypt-auth), a YOLOv8n + MediaPipe AI proctoring service, and a ChromaDB+KNN lead-qualification pipeline; mentored and oversaw 10 interns."
+        ]
+      }
+    ],
+    "skills": [
+      {
+        "category": "LLM & Agentic AI",
+        "items": [
+          "LangGraph",
+          "LangChain",
+          "RAG",
+          "Multi-Agent Systems",
+          "Anthropic Claude Tool Use (Strict Mode)",
+          "MCP Servers",
+          "Prompt Engineering",
+          "LLM-as-Judge",
+          "Agent Guardrailing",
+          "Sandboxing"
+        ]
+      },
+      {
+        "category": "AI / ML",
+        "items": [
+          "Python",
+          "TensorFlow",
+          "PyTorch",
+          "Scikit-learn",
+          "NLP",
+          "CNN",
+          "LSTM",
+          "YOLO",
+          "MediaPipe",
+          "OpenCV",
+          "XGBoost",
+          "Hugging Face",
+          "Sentence Transformers"
+        ]
+      },
+      {
+        "category": "Frameworks & APIs",
+        "items": [
+          "FastAPI",
+          "Flask",
+          "REST APIs",
+          "Socket.IO",
+          "WebSockets",
+          "OpenAI API",
+          "LlamaParse",
+          "Langfuse",
+          "n8n",
+          "BullMQ"
+        ]
+      },
+      {
+        "category": "Databases",
+        "items": [
+          "pgvector",
+          "PostgreSQL",
+          "ChromaDB",
+          "MongoDB",
+          "Redis",
+          "MySQL"
+        ]
+      },
+      {
+        "category": "DevOps / Tools",
+        "items": [
+          "Docker",
+          "Git",
+          "GitLab",
+          "AWS (EC2, S3, Lambda, RDS, CloudWatch)",
+          "Azure Blob Storage",
+          "Embeddings",
+          "Semantic Search"
+        ]
+      }
+    ],
+    "resumeProjects": [
+      "Python, TensorFlow, CNN, LSTM, Attention Mechanisms",
+      "Python, OpenCV, TensorFlow, MediaPipe",
+      "Python, Scikit-learn, XGBoost, FastAPI",
+      "Python, TensorFlow, Keras, OpenCV, scikit-image, Pandas, Seaborn"
+    ],
+    "socialLinks": {
+      "linkedin": "https://www.linkedin.com/in/raj-sahoo-1092/",
+      "github": "https://github.com/AlwaysTwilight",
+      "email": "alwaystwilight109@gmail.com"
+    }
+  },
+  "projects": [
+    {
+      "id": "0c54feeb-bf96-47e4-90a7-49a5c6004dee",
+      "title": "ConstructMind — Schedule Generation Agent",
+      "summary": "An autonomous LangGraph agent that reads construction-project documents and generates a P6-importable (XER) schedule end-to-end — planning the WBS, activities, sequencing, calendars, and resources. Pairs a tool-using Claude agent with deterministic critical-path and DCMA validation engines, guardrails, and a sandboxed shell.",
+      "techStack": [
+        "LangGraph",
+        "Anthropic Claude",
+        "FastAPI",
+        "pgvector",
+        "Semantic Search",
+        "DCMA / CPM",
+        "Redis / BullMQ",
+        "Docker"
+      ],
+      "sourcePath": "Admin",
+      "sortOrder": 0,
+      "updatedAt": "2026-07-17T20:08:28.378192+00:00",
+      "sourceLogicalDocumentKey": "constructmind-schedule-agent",
+      "sourceVersionId": null,
+      "whatItDoes": [
+        "Reads project documents and autonomously plans a full construction schedule",
+        "Emits P6-importable XER + structured schedule JSON",
+        "Shortlists evidence via pgvector cosine-similarity search before LLM calls",
+        "Guardrails: iteration/token budgets, drift & repetition detection, preflight checks",
+        "Sandboxed shell (command denylist, scrubbed env, path-traversal guards)",
+        "Deterministic CPM / WBS / DCMA engines keep the math reproducible"
+      ],
+      "isVisible": true
+    },
+    {
+      "id": "95575a97-a6b6-4e0d-bb4a-9d2f6878858b",
+      "title": "ConstructMind — CoCo Multi-Agent Assistant",
+      "summary": "A multi-agent LangGraph assistant that lets planners talk to their construction schedule in plain English. A classifier routes each message between a greeting agent, a read-only Q&A agent, and a schedule-editing agent — with a hard read/write boundary and strict-mode structured tool calling for safe edits.",
+      "techStack": [
+        "LangGraph",
+        "Multi-Agent",
+        "Intent Routing",
+        "Anthropic Claude",
+        "FastAPI",
+        "Redis"
+      ],
+      "sourcePath": "Admin",
+      "sortOrder": 1,
+      "updatedAt": "2026-07-17T20:08:28.696683+00:00",
+      "sourceLogicalDocumentKey": "constructmind-coco",
+      "sourceVersionId": null,
+      "whatItDoes": [
+        "Classifies user intent and routes to the right specialist agent",
+        "Read-only Q&A agent answers schedule questions without mutation risk",
+        "A single scoped editing agent applies schema-validated structured edits",
+        "Cheap-vs-expensive path selection keeps latency and cost down",
+        "Shares production guardrails with the generation engine"
+      ],
+      "isVisible": true
+    },
+    {
+      "id": "bffadc8f-349b-465b-9e54-d56e8715b63a",
+      "title": "Carevio AI Chatbot Platform",
+      "summary": "A HIPAA-aligned production customer-service chatbot for a nationwide healthcare company: a FastAPI + LangGraph backend with ChromaDB RAG, Redis, and MongoDB, a semantic cache, smart gpt-4o-mini/o3-mini routing (1–3s responses), real-time agent escalation, and an admin dashboard. Dockerized on AWS EC2.",
+      "techStack": [
+        "FastAPI",
+        "LangGraph",
+        "ChromaDB",
+        "Redis",
+        "MongoDB",
+        "React",
+        "AWS EC2",
+        "Docker"
+      ],
+      "sourcePath": "Admin",
+      "sortOrder": 2,
+      "updatedAt": "2026-07-17T20:08:29.045025+00:00",
+      "sourceLogicalDocumentKey": "carevio-chatbot",
+      "sourceVersionId": null,
+      "whatItDoes": [
+        "Retrieval-augmented answers grounded in company documents",
+        "Semantic cache + smart model routing for 1–3s responses",
+        "Real-time human-agent escalation with a live admin dashboard",
+        "HIPAA-aligned, Dockerized, deployed on AWS EC2"
+      ],
+      "isVisible": true
+    },
+    {
+      "id": "388e068c-b718-4004-864f-0d3a6b98ad1f",
+      "title": "Call Center Sentiment Analysis System",
+      "summary": "An automated pipeline that ingests call recordings from S3, transcribes them with Whisper, runs sentiment analysis and summarization with GPT-4, stores structured results, and surfaces per-agent performance dashboards and daily AI-generated reports.",
+      "techStack": [
+        "OpenAI Whisper",
+        "GPT-4",
+        "AWS S3",
+        "MongoDB",
+        "Next.js",
+        "TypeScript"
+      ],
+      "sourcePath": "Admin",
+      "sortOrder": 3,
+      "updatedAt": "2026-07-17T20:08:29.338406+00:00",
+      "sourceLogicalDocumentKey": "sentiment-analysis",
+      "sourceVersionId": null,
+      "whatItDoes": [
+        "Transcribes and analyzes call recordings automatically",
+        "Per-agent sentiment and performance dashboards",
+        "Daily AI-generated operational reports"
+      ],
+      "isVisible": true
+    },
+    {
+      "id": "4dfade4e-36c8-4e14-a4e6-0fa0f7a83e18",
+      "title": "CRM MCP Server",
+      "summary": "A multi-tenant Model Context Protocol server that lets AI assistants query a production CRM in plain English. SELECT-only enforcement, bcrypt-authenticated access, connection pooling — safe natural-language database access.",
+      "techStack": [
+        "Python",
+        "MCP Protocol",
+        "Flask",
+        "MySQL",
+        "OAuth 2.0",
+        "Docker"
+      ],
+      "sourcePath": "Admin",
+      "sortOrder": 4,
+      "updatedAt": "2026-07-17T20:08:29.682610+00:00",
+      "sourceLogicalDocumentKey": "crm-mcp-server",
+      "sourceVersionId": null,
+      "whatItDoes": [
+        "Translates natural language into safe, read-only SQL",
+        "Multi-tenant, bcrypt-authenticated, SELECT-only enforcement",
+        "Production-ready with connection pooling"
+      ],
+      "isVisible": true
+    },
+    {
+      "id": "48dd1ced-1815-4863-aedf-bb5dd189072a",
+      "title": "Plant Disease Classification System",
+      "summary": "A custom 3-block CNN trained from scratch on 87,000+ leaf images across 38 disease categories (14 plant species), reaching 96.57% validation accuracy with a memory-efficient TensorFlow/Keras data pipeline and a real-time inference API.",
+      "techStack": [
+        "TensorFlow",
+        "Keras",
+        "CNN",
+        "OpenCV",
+        "FastAPI",
+        "NumPy"
+      ],
+      "sourcePath": "Admin",
+      "sortOrder": 5,
+      "updatedAt": "2026-07-17T20:08:29.994039+00:00",
+      "sourceLogicalDocumentKey": "plant-disease",
+      "sourceVersionId": null,
+      "whatItDoes": [
+        "38 disease categories across 14 plant species",
+        "96.57% validation accuracy; 96% macro precision/recall/F1",
+        "Memory-efficient pipeline over 87K+ images"
+      ],
+      "isVisible": true
+    }
+  ],
+  "scheduling": {
+    "calLink": "https://cal.com/alwaystwilight/30min",
+    "enabled": true,
+    "headline": "Let's talk",
+    "subtext": "Let's grab a virtual coffee and talk shop. Whether it's a role, an idea, or just AI things — pick a time that works for you"
+  },
+  "sections": [
+    {
+      "id": "projects",
+      "label": "Projects",
+      "visible": true
+    },
+    {
+      "id": "experience",
+      "label": "Experience",
+      "visible": true
+    },
+    {
+      "id": "skills",
+      "label": "Skills",
+      "visible": true
+    },
+    {
+      "id": "scheduling",
+      "label": "Schedule a call",
+      "visible": true
+    },
+    {
+      "id": "contact",
+      "label": "Contact",
+      "visible": true
+    }
+  ]
+}

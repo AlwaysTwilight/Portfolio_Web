@@ -1,6 +1,15 @@
 import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
+import fallbackData from './portfolioFallback.json'
 
 const Terminal3D = lazy(() => import('./Terminal3D'))
+
+// Static snapshot of the portfolio, bundled at build time. Rendered instantly so
+// the page is never blank while the backend/DB cold-starts (Render/Neon spin down
+// on inactivity). Live data replaces it as soon as /portfolio responds.
+const FALLBACK_PORTFOLIO = fallbackData as unknown as PortfolioPayload
+
+// Public path to the downloadable resume (lives in portfolio-web/public/).
+const RESUME_URL = '/Raj_Sahoo_Resume.pdf'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -88,6 +97,39 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init)
   if (!res.ok) throw new Error(await res.text())
   return res.json() as Promise<T>
+}
+
+// Compute total professional tenure (e.g. "1.5 yrs") from experience date ranges
+// like "May 2026 – Present" / "Dec 2024 – May 2026". Falls back gracefully.
+const MONTHS: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+}
+function parseMonthYear(s: string): Date | null {
+  const t = s.trim().toLowerCase()
+  if (/present|current|now/.test(t)) return new Date()
+  const m = /([a-z]{3})[a-z]*\s+(\d{4})/.exec(t)
+  if (!m) return null
+  const month = MONTHS[m[1]]
+  if (month === undefined) return null
+  return new Date(Number(m[2]), month, 1)
+}
+function totalExperienceLabel(experience: ExperienceItem[]): string | null {
+  let months = 0
+  for (const exp of experience) {
+    const range = exp.dateRange || ''
+    const parts = range.split(/[-–—]/)
+    if (parts.length < 2) continue
+    const start = parseMonthYear(parts[0])
+    const end = parseMonthYear(parts.slice(1).join('-'))
+    if (!start || !end) continue
+    months += (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1
+  }
+  if (months <= 0) return null
+  const years = months / 12
+  if (years < 1) return `${months} mos`
+  const rounded = Math.round(years * 10) / 10
+  return `${rounded} ${rounded === 1 ? 'yr' : 'yrs'}`
 }
 
 // Accepts "raj-sahoo", "cal.com/raj-sahoo", or a full https URL and returns a usable URL.
@@ -265,8 +307,11 @@ function RevealSection({ id, children, className = '' }: {
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function PortfolioPage() {
-  const [portfolio, setPortfolio] = useState<PortfolioPayload | null>(null)
+  // Start from the bundled snapshot so the page renders full content immediately,
+  // even before the backend wakes. `isLive` flips true once real data arrives.
+  const [portfolio, setPortfolio] = useState<PortfolioPayload | null>(FALLBACK_PORTFOLIO)
   const [loading, setLoading] = useState(true)
+  const [isLive, setIsLive] = useState(false)
   const [activeProject, setActiveProject] = useState<ProjectCard | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
   const [chatInput, setChatInput] = useState('')
@@ -308,17 +353,30 @@ export default function PortfolioPage() {
   }, [theme])
 
   // ── Load portfolio ──
+  // Keeps the bundled snapshot on screen until the live backend responds, then
+  // swaps in fresh data. On failure (cold backend) the snapshot simply stays.
   async function loadPortfolio() {
     try {
       const d = await apiFetch<PortfolioPayload>('/portfolio')
       setPortfolio(d)
-    } catch { /* silent */ }
+      setIsLive(true)
+    } catch { /* keep showing the static fallback */ }
     finally { setLoading(false) }
   }
 
   useEffect(() => { void loadPortfolio() }, [])
 
-  // ── BroadcastChannel + 30s poll ──
+  // ── Wake-the-backend retries ──
+  // The backend + DB spin down on inactivity and can take 30–60s to cold-start.
+  // Retry every 4s until live data lands, so a recruiter hitting a cold instance
+  // sees the snapshot immediately and the real data as soon as it's warm.
+  useEffect(() => {
+    if (isLive) return
+    const t = setInterval(() => { void loadPortfolio() }, 4_000)
+    return () => clearInterval(t)
+  }, [isLive])
+
+  // ── BroadcastChannel + slow poll (once live) ──
   useEffect(() => {
     const bc = new BroadcastChannel('portfolio-updates')
     bc.onmessage = (e: MessageEvent) => { if (e.data?.type === 'data-updated') void loadPortfolio() }
@@ -389,8 +447,14 @@ export default function PortfolioPage() {
         })
       })
       setMessages([...next, { role: 'assistant', content: r.answer }])
+      setIsLive(true)
     } catch (err) {
-      setMessages([...next, { role: 'assistant', content: 'Connection error — try again.' }])
+      setMessages([...next, {
+        role: 'assistant',
+        content: isLive
+          ? 'Connection error — please try again.'
+          : "I'm just waking up the server (it sleeps when idle to save cost). Give me ~30 seconds and ask again — I'll be ready."
+      }])
     } finally { setChatting(false) }
   }
 
@@ -560,6 +624,9 @@ export default function PortfolioPage() {
                 {id}
               </button>
             ))}
+            <button className="nav-pill" onClick={() => scrollTo('resume')} type="button">
+              résumé
+            </button>
             {isSectionOn('contact') && (
               <button className="nav-pill" onClick={() => scrollTo('contact')} type="button">
                 contact
@@ -672,6 +739,18 @@ export default function PortfolioPage() {
                 <button className="btn-ghost" onClick={() => scrollTo('projects')} type="button">
                   View projects <span className="btn-arrow">↓</span>
                 </button>
+                <a
+                  className="btn-ghost btn-resume"
+                  href={RESUME_URL}
+                  download="Raj_Sahoo_Resume.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                  </svg>
+                  Résumé
+                </a>
               </div>
             </div>
 
@@ -687,7 +766,7 @@ export default function PortfolioPage() {
                 <div className="stats-body">
                   <StatRow label="projects" value={String(projects.length).padStart(2, '0')} />
                   <StatRow label="stack" value={`${skills.reduce((n, s) => n + s.items.length, 0)} tools`} />
-                  <StatRow label="experience" value={experience[0]?.dateRange?.replace(' - Present', '+') ?? '2024+'} />
+                  <StatRow label="experience" value={totalExperienceLabel(experience) ?? '1.5 yrs'} />
                   <StatRow label="status" value={openToWork ? 'open_to_work' : 'employed'} accent={openToWork} />
                   <StatRow label="location" value={(profile?.currentLocation || profile?.location) ?? 'India'} />
                 </div>
@@ -815,11 +894,45 @@ export default function PortfolioPage() {
         )}
 
         {/* ══════════════════════════════════════════
+            RÉSUMÉ DOWNLOAD
+        ══════════════════════════════════════════ */}
+        <RevealSection id="resume" className="section">
+          <SectionLabel index="04" title="Résumé" sub="one page, up to date" />
+          <div className="resume-card">
+            <div className="resume-copy">
+              <div className="resume-icon" aria-hidden>
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+                </svg>
+              </div>
+              <div>
+                <h3 className="resume-title">Download my résumé</h3>
+                <p className="resume-text">
+                  A concise one-page overview of my experience, projects, and stack — ready to share or forward.
+                </p>
+              </div>
+            </div>
+            <a
+              className="btn-primary resume-btn"
+              href={RESUME_URL}
+              download="Raj_Sahoo_Resume.pdf"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+              </svg>
+              Download PDF
+            </a>
+          </div>
+        </RevealSection>
+
+        {/* ══════════════════════════════════════════
             SCHEDULE A CALL
         ══════════════════════════════════════════ */}
         {isSectionOn('scheduling') && schedulingEnabled && (
           <RevealSection id="scheduling" className="section">
-            <SectionLabel index="04" title={scheduling.headline || 'Schedule a call'} sub="live availability" />
+            <SectionLabel index="05" title={scheduling.headline || 'Schedule a call'} sub="live availability" />
             <div className="schedule-card">
               <div className="schedule-copy">
                 <p className="schedule-text">
@@ -846,7 +959,7 @@ export default function PortfolioPage() {
         ══════════════════════════════════════════ */}
         {isSectionOn('contact') && (
           <RevealSection id="contact" className="section">
-            <SectionLabel index="05" title="Get in touch" sub="let's build something" />
+            <SectionLabel index="06" title="Get in touch" sub="let's build something" />
             <div className="contact-wrap">
               <div className="contact-intro">
                 <p className="contact-lead">
@@ -969,7 +1082,11 @@ export default function PortfolioPage() {
               </span>
               <div>
                 <p className="chat-title">AI Assistant</p>
-                <p className="chat-subtitle">Grounded in your documents</p>
+                <p className="chat-subtitle">
+                  {isLive
+                    ? 'Grounded in real documents'
+                    : 'Warming up — grounded in real documents'}
+                </p>
               </div>
             </div>
             <button
