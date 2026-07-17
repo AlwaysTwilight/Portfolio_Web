@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
+import { usePortfolio, cleanProjects, API_BASE } from '../usePortfolio'
+import type { PortfolioPayload, ProjectCard } from '../usePortfolio'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -12,61 +14,32 @@ export type Screen =
   | 'SKILLS'
   | 'RAJBOT'
 
-export type ExperienceItem = {
-  company: string
-  role?: string
-  dateRange?: string
-  items: string[]
-  highlights: string[]
-}
-
-export type SkillCategory = {
-  category: string
-  items: string[]
-}
-
-export type ProjectCard = {
-  id: string
-  title: string
-  summary: string
-  techStack: string[]
-}
-
-export type PortfolioData = {
-  profile: {
-    name: string
-    location: string
-    headline: string
-    about: string
-    openToWork: boolean
-    currentLocation?: string
-    experience: ExperienceItem[]
-    skills: SkillCategory[]
-  }
-  projects: ProjectCard[]
-}
+// Re-export shared types so Scene3D keeps importing them from here.
+export type {
+  ExperienceItem,
+  SkillCategory,
+  ProjectCard,
+  PortfolioPayload as PortfolioData,
+} from '../usePortfolio'
 
 export type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-const API_BASE = (import.meta as unknown as { env: Record<string, string> }).env.VITE_API_BASE_URL || 'http://localhost:8000'
-
 export function useTerminal() {
   const [screen, setScreen]       = useState<Screen>('BOOT')
-  const [portfolio, setPortfolio] = useState<PortfolioData | null>(null)
   const [bootDone, setBootDone]   = useState(false)
   const [activeProject, setActiveProject] = useState<ProjectCard | null>(null)
   const [chatHistory, setChatHistory]     = useState<ChatMessage[]>([])
   const [chatThinking, setChatThinking]   = useState(false)
 
-  // ── Fetch portfolio on mount ──
-  useEffect(() => {
-    fetch(`${API_BASE}/portfolio`)
-      .then(r => r.json())
-      .then(d => setPortfolio(d as PortfolioData))
-      .catch(() => {/* continue without data */})
-  }, [])
+  // Same data source as the classic page: instant snapshot, then live swap.
+  const { portfolio: rawPortfolio, isLive } = usePortfolio()
+  // Present the same clean, filtered project set the classic page shows.
+  const portfolio: PortfolioPayload = {
+    ...rawPortfolio,
+    projects: cleanProjects(rawPortfolio.projects),
+  }
 
   // ── Auto-advance from BOOT → MENU after boot anim ──
   const onBootComplete = useCallback(() => {
@@ -118,16 +91,19 @@ export function useTerminal() {
     } catch {
       setChatHistory(prev => [...prev, {
         role: 'assistant',
-        content: 'CONNECTION ERROR — check backend.',
+        content: isLive
+          ? 'Connection error — please try again.'
+          : "I'm just waking up the server (it sleeps when idle). Give me ~30s and ask again.",
       }])
     } finally {
       setChatThinking(false)
     }
-  }, [chatHistory, chatThinking])
+  }, [chatHistory, chatThinking, isLive])
 
   return {
     screen,
     portfolio,
+    isLive,
     bootDone,
     activeProject,
     chatHistory,

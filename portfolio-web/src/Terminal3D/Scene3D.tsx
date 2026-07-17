@@ -87,7 +87,7 @@ const fabricTex = (base: string, line = 'rgba(0,0,0,0.06)') => makeTex(128, 128,
 const duvetTex = (base: string) => makeTex(256, 256, c => { c.fillStyle = base; c.fillRect(0, 0, 256, 256); c.strokeStyle = 'rgba(0,0,0,0.10)'; c.lineWidth = 2; for (let i = -256; i < 256; i += 46) { c.beginPath(); c.moveTo(i, 0); c.lineTo(i + 256, 256); c.stroke(); c.beginPath(); c.moveTo(i + 256, 0); c.lineTo(i, 256); c.stroke() } }, [2, 2])
 const stdMap = (tex: THREE.Texture, rough = 0.85, metal = 0) => new THREE.MeshStandardMaterial({ map: tex, roughness: rough, metalness: metal })
 
-function neonSign(text: string, color = '#39ff7a') {
+function neonSign(text: string, color = '#2ee6a0') {
   return makeTex(512, 160, c => { c.clearRect(0, 0, 512, 160); c.font = 'bold 92px "Courier New",monospace'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.shadowColor = color; c.shadowBlur = 30; c.fillStyle = color; c.fillText(text, 256, 86); c.fillText(text, 256, 86) })
 }
 
@@ -130,7 +130,7 @@ function buildRoom() {
 
   // neon sign + posters on feature wall
   room.add(at(new THREE.Mesh(new THREE.PlaneGeometry(2.6, 0.8), new THREE.MeshBasicMaterial({ map: neonSign('<RAJ/>'), transparent: true })), 0, 3.6, -4.94))
-  room.add(at(new THREE.PointLight(0x39ff7a, 2.0, 6, 2), 0, 3.4, -4.2) as THREE.PointLight)
+  room.add(at(new THREE.PointLight(0x2ee6a0, 2.0, 6, 2), 0, 3.4, -4.2) as THREE.PointLight)
   ;[[-3.4, 0], [3.4, 1]].forEach(([x, k]) => { room.add(at(rbox(1.1, 1.5, 0.05, std(0x2a1c0e, 0.6), 0.02), x as number, 3.2, -4.93)); room.add(at(new THREE.Mesh(new THREE.PlaneGeometry(0.96, 1.36), stdMap(posterTex(k as number), 0.9)), x as number, 3.2, -4.9)) })
 
   // window with real view + frame + curtains
@@ -150,10 +150,10 @@ function buildRoom() {
   const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 600
   const ctx = cv.getContext('2d')!
   const screenTex = new THREE.CanvasTexture(cv)
-  const screenMat = std(0x0a0a12, 0.3, 0.1, 0x00ff66, 0.9); screenMat.map = screenTex; screenMat.emissiveMap = screenTex
+  const screenMat = std(0x0a0a12, 0.3, 0.1, 0x00e676, 0.9); screenMat.map = screenTex; screenMat.emissiveMap = screenTex
   const drawIdleScreen = () => {
     const g = ctx.createLinearGradient(0, 0, 0, 600); g.addColorStop(0, '#0a1626'); g.addColorStop(1, '#0d2233'); ctx.fillStyle = g; ctx.fillRect(0, 0, 1024, 600)
-    ctx.fillStyle = '#39ff7a'; ctx.textAlign = 'center'; ctx.font = 'bold 86px monospace'; ctx.fillText('<RAJ/>', 512, 230)
+    ctx.fillStyle = '#2ee6a0'; ctx.textAlign = 'center'; ctx.font = 'bold 86px monospace'; ctx.fillText('<RAJ/>', 512, 230)
     ctx.font = '28px monospace'; ctx.fillStyle = '#bfe8d0'; ctx.fillText('walk over & press  E  to log in', 512, 330)
     ctx.fillStyle = '#7fd6a0'; ctx.fillText('— or chat with me anywhere —', 512, 380)
     ctx.textAlign = 'left'; screenTex.needsUpdate = true
@@ -227,7 +227,7 @@ function buildRoom() {
   const clock = new THREE.Group(); clock.add(new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.06, 24), std(0x1c1c22, 0.5))); const face = new THREE.Mesh(new THREE.CircleGeometry(0.28, 24), std(0xf4f1ea, 0.6)); face.position.y = 0.035; clock.add(face); clock.rotation.x = Math.PI / 2; clock.rotation.z = -Math.PI / 2; clock.position.set(7.9, 4.2, -1.6); room.add(clock)
   room.add(at(rbox(2.4, 0.1, 1.2, std(0xeae2d2, 0.6, 0, 0xfff4e0, 0.9), 0.04), 0, 9.9, -1))
 
-  const monitorLight = new THREE.PointLight(0x39ff7a, 1.2, 5, 2); monitorLight.position.set(0, MON.y, MON.z + 0.6); room.add(monitorLight)
+  const monitorLight = new THREE.PointLight(0x2ee6a0, 1.2, 5, 2); monitorLight.position.set(0, MON.y, MON.z + 0.6); room.add(monitorLight)
 
   return { room, screenTex, screenMat, monitorLight }
 }
@@ -252,36 +252,39 @@ function Desktop({ portfolio, onLeave, chat, click }: {
   ]
   const open = (id: DeskWin) => { click(); setWin(id) }
   return (
-    <div style={{ position: 'absolute', inset: 0, background: 'rgba(2,6,10,0.55)', backdropFilter: 'blur(3px)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div style={{ width: 'min(960px,94vw)', height: 'min(620px,88vh)', background: 'linear-gradient(160deg,#0a1018,#0d1622)', border: '2px solid rgba(57,255,122,0.4)', borderRadius: 14, boxShadow: '0 30px 90px rgba(0,0,0,0.7), inset 0 0 60px rgba(57,255,122,0.04)', display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: 'monospace' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderBottom: '1px solid rgba(57,255,122,0.25)', background: 'rgba(57,255,122,0.05)' }}>
-          <span style={{ color: '#39ff7a', fontWeight: 700, letterSpacing: '0.12em' }}>RAJ-OS</span>
-          <div style={{ display: 'flex', gap: 8 }}>{win && <button onClick={() => { click(); setWin(null) }} style={deskBtn}>◂ Desktop</button>}<button onClick={onLeave} style={deskBtn}>Leave (Esc)</button></div>
+    <div style={{ position: 'absolute', inset: 0, background: 'rgba(4,6,9,0.6)', backdropFilter: 'blur(6px)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ width: 'min(980px,94vw)', height: 'min(640px,88vh)', background: 'linear-gradient(160deg,#121418,#0d0f13)', border: `1px solid ${UI.border}`, borderRadius: 18, boxShadow: '0 30px 90px rgba(0,0,0,0.6), 0 0 0 1px rgba(16,185,129,0.08)', display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily: UI.font }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 18px', borderBottom: `1px solid ${UI.border}`, background: 'rgba(16,185,129,0.04)' }}>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 9, color: UI.ink, fontWeight: 700, letterSpacing: '0.02em' }}>
+            <span style={{ width: 9, height: 9, borderRadius: '50%', background: UI.gradient, boxShadow: '0 0 10px rgba(16,185,129,0.7)' }} />
+            Raj OS
+          </span>
+          <div style={{ display: 'flex', gap: 8 }}>{win && <button onClick={() => { click(); setWin(null) }} style={deskBtn}>◂ Desktop</button>}<button onClick={onLeave} style={btn}>Leave (Esc)</button></div>
         </div>
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
           {!win ? (
-            <div style={{ flex: 1, padding: 28, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px,1fr))', gridAutoRows: 'min-content', gap: 22, alignContent: 'start' }}>
+            <div style={{ flex: 1, padding: 30, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(124px,1fr))', gridAutoRows: 'min-content', gap: 22, alignContent: 'start' }}>
               {icons.map(ic => (
-                <button key={ic.label} onClick={() => open(ic.id)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, background: 'transparent', border: 'none', cursor: 'pointer', color: '#cfeede', padding: 10, borderRadius: 10 }} onMouseEnter={e => (e.currentTarget.style.background = 'rgba(57,255,122,0.1)')} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                  <span style={{ width: 58, height: 58, display: 'grid', placeItems: 'center', background: 'rgba(57,255,122,0.08)', border: '1px solid rgba(57,255,122,0.35)', borderRadius: 14 }}><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#39ff7a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">{ic.svg}</svg></span>
-                  <span style={{ fontSize: '0.82rem' }}>{ic.label}</span>
+                <button key={ic.label} onClick={() => open(ic.id)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 11, background: 'transparent', border: 'none', cursor: 'pointer', color: UI.ink2, padding: 12, borderRadius: 14, transition: 'background .15s' }} onMouseEnter={e => (e.currentTarget.style.background = UI.accentSoft)} onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                  <span style={{ width: 60, height: 60, display: 'grid', placeItems: 'center', background: UI.accentSoft, border: `1px solid ${UI.borderAccent}`, borderRadius: 16 }}><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke={UI.accent} strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">{ic.svg}</svg></span>
+                  <span style={{ fontSize: '0.84rem', fontWeight: 500 }}>{ic.label}</span>
                 </button>
               ))}
             </div>
           ) : (
-            <div ref={tref} style={{ flex: 1, overflowY: 'auto', padding: 24, color: '#dfeee7' }}>
-              {win === 'projects' && <Win title="Projects">{(portfolio?.projects ?? []).map(p => (<div key={p.id} style={cardStyle}><div style={{ color: '#39ff7a', fontWeight: 700, marginBottom: 6 }}>{p.title}</div><div style={{ fontSize: '0.88rem', lineHeight: 1.5, opacity: 0.9 }}>{p.summary}</div>{p.techStack?.length > 0 && <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>{p.techStack.map(t => <span key={t} style={tagStyle}>{t}</span>)}</div>}</div>))}</Win>}
-              {win === 'experience' && <Win title="Experience">{(profile?.experience ?? []).map((e, i) => (<div key={i} style={cardStyle}><div style={{ color: '#39ff7a', fontWeight: 700 }}>{e.role} {e.company ? `· ${e.company}` : ''}</div>{e.dateRange && <div style={{ fontSize: '0.78rem', opacity: 0.6, margin: '3px 0 8px' }}>{e.dateRange}</div>}{(e.highlights?.length ? e.highlights : e.items)?.map((it, j) => <div key={j} style={{ fontSize: '0.86rem', lineHeight: 1.5, opacity: 0.9 }}>• {it}</div>)}</div>))}</Win>}
-              {win === 'skills' && <Win title="Skills">{(profile?.skills ?? []).map((s, i) => (<div key={i} style={{ marginBottom: 16 }}><div style={{ color: '#39ff7a', fontWeight: 700, marginBottom: 8 }}>{s.category}</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{s.items.map(it => <span key={it} style={tagStyle}>{it}</span>)}</div></div>))}</Win>}
-              {win === 'about' && <Win title="About"><div style={{ fontSize: '1.05rem', color: '#39ff7a', fontWeight: 700 }}>{profile?.name}</div><div style={{ opacity: 0.8, margin: '4px 0 14px' }}>{profile?.headline} {profile?.location ? `· ${profile.location}` : ''}</div><div style={{ fontSize: '0.92rem', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{profile?.about}</div>{profile?.openToWork && <div style={{ marginTop: 14, display: 'inline-block', padding: '6px 12px', border: '1px solid #39ff7a', borderRadius: 8, color: '#39ff7a' }}>● Open to work</div>}</Win>}
+            <div ref={tref} style={{ flex: 1, overflowY: 'auto', padding: 26, color: UI.ink2 }}>
+              {win === 'projects' && <Win title="Projects">{(portfolio?.projects ?? []).map(p => (<div key={p.id} style={cardStyle}><div style={{ color: UI.ink, fontWeight: 700, fontSize: '1rem', marginBottom: 6 }}>{p.title}</div><div style={{ fontSize: '0.88rem', lineHeight: 1.55, color: UI.muted }}>{p.summary}</div>{(p.whatItDoes?.length ?? 0) > 0 && <ul style={{ margin: '10px 0 0', paddingLeft: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 4 }}>{p.whatItDoes!.slice(0, 5).map((w, j) => <li key={j} style={{ fontSize: '0.84rem', lineHeight: 1.5, color: UI.ink2, display: 'flex', gap: 8 }}><span style={{ color: UI.accent }}>▸</span>{w}</li>)}</ul>}{p.techStack?.length > 0 && <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>{p.techStack.map(t => <span key={t} style={tagStyle}>{t}</span>)}</div>}</div>))}</Win>}
+              {win === 'experience' && <Win title="Experience">{(profile?.experience ?? []).map((e, i) => (<div key={i} style={cardStyle}><div style={{ color: UI.ink, fontWeight: 700, fontSize: '1rem' }}>{e.role} {e.company ? `· ${e.company}` : ''}</div>{e.dateRange && <div style={{ fontSize: '0.78rem', color: UI.accent, margin: '3px 0 8px', fontWeight: 500 }}>{e.dateRange}</div>}{e.summary && <div style={{ fontSize: '0.86rem', lineHeight: 1.55, color: UI.muted, marginBottom: 8 }}>{e.summary}</div>}{(e.highlights?.length ? e.highlights : e.items)?.map((it, j) => <div key={j} style={{ fontSize: '0.85rem', lineHeight: 1.5, color: UI.ink2, display: 'flex', gap: 8, marginBottom: 3 }}><span style={{ color: UI.accent }}>▸</span>{it}</div>)}</div>))}</Win>}
+              {win === 'skills' && <Win title="Skills">{(profile?.skills ?? []).map((s, i) => (<div key={i} style={{ marginBottom: 18 }}><div style={{ color: UI.ink, fontWeight: 700, marginBottom: 9 }}>{s.category}</div><div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>{s.items.map(it => <span key={it} style={tagStyle}>{it}</span>)}</div></div>))}</Win>}
+              {win === 'about' && <Win title="About"><div style={{ fontSize: '1.2rem', color: UI.ink, fontWeight: 700 }}>{profile?.name}</div><div style={{ color: UI.accent, margin: '4px 0 14px', fontWeight: 500 }}>{profile?.headline} {profile?.location ? `· ${profile.location}` : ''}</div><div style={{ fontSize: '0.94rem', lineHeight: 1.65, whiteSpace: 'pre-wrap', color: UI.ink2 }}>{profile?.about}</div>{profile?.openToWork && <div style={{ marginTop: 16, display: 'inline-flex', alignItems: 'center', gap: 8, padding: '7px 14px', border: `1px solid ${UI.borderAccent}`, background: UI.accentSoft, borderRadius: 9, color: UI.accent, fontWeight: 600, fontSize: '0.85rem' }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: UI.accent }} />Open to work</div>}</Win>}
               {win === 'chat' && (
                 <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-                  <div style={{ color: '#39ff7a', fontWeight: 700, fontSize: '1.05rem', marginBottom: 12 }}>RajBot</div>
-                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0 }}>
-                    {chat.history.map((m, i) => (<div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '82%', padding: '9px 14px', borderRadius: 10, whiteSpace: 'pre-wrap', fontSize: '0.9rem', lineHeight: 1.5, background: m.role === 'user' ? 'rgba(57,255,122,0.14)' : 'rgba(255,255,255,0.06)', border: `1px solid ${m.role === 'user' ? 'rgba(57,255,122,0.4)' : 'rgba(255,255,255,0.12)'}` }}>{m.content}</div>))}
-                    {chat.thinking && <div style={{ alignSelf: 'flex-start', opacity: 0.7, fontSize: '0.88rem' }}>thinking…</div>}
+                  <div style={{ color: UI.ink, fontWeight: 700, fontSize: '1.1rem', marginBottom: 12, display: 'flex', alignItems: 'center', gap: 9 }}><span style={{ width: 9, height: 9, borderRadius: '50%', background: UI.gradient }} />RajBot</div>
+                  <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, minHeight: 0, overflowY: 'auto' }}>
+                    {chat.history.map((m, i) => (<div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '82%', padding: '10px 14px', borderRadius: 12, whiteSpace: 'pre-wrap', fontSize: '0.9rem', lineHeight: 1.55, background: m.role === 'user' ? UI.accentSoft : 'rgba(255,255,255,0.05)', border: `1px solid ${m.role === 'user' ? UI.borderAccent : UI.border}`, color: m.role === 'user' ? UI.ink : UI.ink2 }}>{m.content}</div>))}
+                    {chat.thinking && <div style={{ alignSelf: 'flex-start', color: UI.muted, fontSize: '0.88rem' }}>thinking…</div>}
                   </div>
-                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && input.trim()) { chat.send(input.trim()); setInput('') } }} placeholder="Ask Raj…" autoFocus style={inputStyle} /><button onClick={() => { if (input.trim()) { chat.send(input.trim()); setInput('') } }} style={deskBtn}>SEND</button></div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && input.trim()) { chat.send(input.trim()); setInput('') } }} placeholder="Ask about Raj's work…" autoFocus style={inputStyle} /><button onClick={() => { if (input.trim()) { chat.send(input.trim()); setInput('') } }} style={deskBtn}>Send</button></div>
                 </div>
               )}
             </div>
@@ -292,7 +295,7 @@ function Desktop({ portfolio, onLeave, chat, click }: {
   )
 }
 function Win({ title, children }: { title: string; children: React.ReactNode }) {
-  return <div><div style={{ color: '#39ff7a', fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.08em', marginBottom: 16, borderBottom: '1px solid rgba(57,255,122,0.2)', paddingBottom: 8 }}>{title}</div>{children}</div>
+  return <div><div style={{ color: UI.ink, fontSize: '1.15rem', fontWeight: 700, letterSpacing: '-0.01em', marginBottom: 16, borderBottom: `1px solid ${UI.border}`, paddingBottom: 10 }}>{title}</div>{children}</div>
 }
 
 // ── MAIN ─────────────────────────────────────────────────────────────────────
@@ -494,18 +497,18 @@ export default function Scene3D({ portfolio, chatHistory, chatThinking, sendChat
 
       <div style={{ position: 'absolute', top: 16, right: 18, display: 'flex', gap: 10, zIndex: 30 }}>
         <button onClick={toggleMute} style={btn} title="Sound">{muted ? '🔇' : '🔊'}</button>
-        <button onClick={() => setChatOpen(o => !o)} style={btn}>{chatOpen ? '✕ CHAT' : '💬 CHAT'}</button>
-        <button onClick={onExitClassic} style={btn}>CLASSIC SITE</button>
+        <button onClick={() => setChatOpen(o => !o)} style={chatOpen ? { ...btn, borderColor: UI.borderAccent, color: UI.accent } : btn}>{chatOpen ? '✕ Chat' : '💬 Chat'}</button>
+        <button onClick={onExitClassic} style={btn}>← Classic site</button>
       </div>
 
       {speech && mode !== 'loading' && mode !== 'pc' && (
-        <div style={{ position: 'absolute', top: '11%', left: '50%', transform: 'translateX(-50%)', maxWidth: 'min(700px,88vw)', background: 'rgba(8,14,22,0.82)', border: '1px solid rgba(57,255,122,0.55)', borderRadius: 14, padding: '13px 22px', color: '#d6ffe6', fontFamily: 'monospace', fontSize: 'clamp(0.9rem,1.7vw,1.1rem)', lineHeight: 1.5, textAlign: 'center', backdropFilter: 'blur(6px)', pointerEvents: 'none', zIndex: 20, boxShadow: '0 8px 40px rgba(0,0,0,0.4)' }}>{speech}</div>
+        <div style={{ position: 'absolute', top: '11%', left: '50%', transform: 'translateX(-50%)', maxWidth: 'min(700px,88vw)', background: UI.panel, border: `1px solid ${UI.border}`, borderRadius: 16, padding: '14px 22px', color: UI.ink, fontFamily: UI.font, fontSize: 'clamp(0.9rem,1.7vw,1.05rem)', lineHeight: 1.55, textAlign: 'center', backdropFilter: 'blur(12px)', pointerEvents: 'none', zIndex: 20, boxShadow: '0 12px 48px rgba(0,0,0,0.45)' }}>{speech}</div>
       )}
 
       {mode === 'roam' && (
         <>
-          <div style={{ position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)', color: '#0c2a1a', background: 'rgba(255,255,255,0.55)', padding: '7px 16px', borderRadius: 20, fontFamily: 'monospace', fontSize: '0.8rem', zIndex: 15, backdropFilter: 'blur(4px)' }}>WASD / arrows to move{near ? '' : '  ·  approach the PC to log in'}</div>
-          {near && <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translateX(-50%)', color: '#06210f', background: 'rgba(57,255,122,0.92)', padding: '10px 20px', borderRadius: 10, fontFamily: 'monospace', fontWeight: 700, fontSize: '0.95rem', zIndex: 18, boxShadow: '0 6px 24px rgba(0,0,0,0.3)', cursor: 'pointer' }} onClick={() => { if (apiRef.current?.enterPC()) setMode('pc') }}>Press E to use the computer ▸</div>}
+          <div style={{ position: 'absolute', bottom: 18, left: '50%', transform: 'translateX(-50%)', color: UI.ink2, background: UI.panel, border: `1px solid ${UI.border}`, padding: '8px 18px', borderRadius: 20, fontFamily: UI.font, fontSize: '0.82rem', fontWeight: 500, zIndex: 15, backdropFilter: 'blur(10px)' }}>WASD / arrows to move{near ? '' : '  ·  approach the PC to log in'}</div>
+          {near && <div style={{ position: 'absolute', top: '40%', left: '50%', transform: 'translateX(-50%)', color: '#04140c', background: UI.gradient, padding: '11px 22px', borderRadius: 12, fontFamily: UI.font, fontWeight: 700, fontSize: '0.95rem', zIndex: 18, boxShadow: '0 8px 30px rgba(16,185,129,0.4)', cursor: 'pointer' }} onClick={() => { if (apiRef.current?.enterPC()) setMode('pc') }}>Press E to use the computer ▸</div>}
           <div style={{ position: 'absolute', bottom: 70, left: 24, zIndex: 22, display: 'grid', gridTemplateColumns: 'repeat(3,48px)', gridTemplateRows: 'repeat(3,48px)', gap: 6, touchAction: 'none' }}>
             {([['', 'w', ''], ['a', '', 'd'], ['', 's', '']] as const).flat().map((kk, i) => kk ? <button key={i} onPointerDown={e => { e.preventDefault(); press(kk, true) }} onPointerUp={() => press(kk, false)} onPointerLeave={() => press(kk, false)} style={dpad}>{kk.toUpperCase()}</button> : <span key={i} />)}
           </div>
@@ -513,22 +516,23 @@ export default function Scene3D({ portfolio, chatHistory, chatThinking, sendChat
       )}
 
       {chatOpen && mode !== 'pc' && (
-        <div style={{ position: 'absolute', bottom: 0, right: 0, width: 'min(420px,96vw)', maxHeight: '60vh', display: 'flex', flexDirection: 'column', background: 'rgba(6,10,16,0.9)', border: '1px solid rgba(57,255,122,0.4)', borderRadius: '14px 0 0 0', backdropFilter: 'blur(10px)', zIndex: 28 }}>
-          <div ref={transcriptRef} style={{ overflowY: 'auto', padding: '14px 16px 6px', display: 'flex', flexDirection: 'column', gap: 9 }}>
-            {chatHistory.length === 0 && <div style={{ color: '#7fd6a0', fontFamily: 'monospace', fontSize: '0.86rem', opacity: 0.8 }}>Ask me about projects, experience, skills, or availability.</div>}
-            {chatHistory.map((m, i) => <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 13px', borderRadius: 10, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: '0.88rem', lineHeight: 1.5, background: m.role === 'user' ? 'rgba(57,255,122,0.14)' : 'rgba(255,255,255,0.06)', border: `1px solid ${m.role === 'user' ? 'rgba(57,255,122,0.4)' : 'rgba(255,255,255,0.12)'}`, color: m.role === 'user' ? '#d6ffe6' : '#e8eef5' }}>{m.content}</div>)}
-            {chatThinking && <div style={{ alignSelf: 'flex-start', color: '#7fd6a0', fontFamily: 'monospace', fontSize: '0.86rem', padding: '4px 13px' }}>Raj is thinking…</div>}
+        <div style={{ position: 'absolute', bottom: 0, right: 0, width: 'min(420px,96vw)', maxHeight: '62vh', display: 'flex', flexDirection: 'column', background: UI.panel, border: `1px solid ${UI.border}`, borderRadius: '16px 0 0 0', backdropFilter: 'blur(14px)', zIndex: 28, boxShadow: '0 -8px 40px rgba(0,0,0,0.4)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '13px 16px 4px', color: UI.ink, fontFamily: UI.font, fontWeight: 700, fontSize: '0.92rem' }}><span style={{ width: 8, height: 8, borderRadius: '50%', background: UI.gradient }} />RajBot</div>
+          <div ref={transcriptRef} style={{ overflowY: 'auto', padding: '10px 16px 6px', display: 'flex', flexDirection: 'column', gap: 9 }}>
+            {chatHistory.length === 0 && <div style={{ color: UI.muted, fontFamily: UI.font, fontSize: '0.86rem' }}>Ask me about projects, experience, skills, or availability.</div>}
+            {chatHistory.map((m, i) => <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '9px 13px', borderRadius: 12, whiteSpace: 'pre-wrap', fontFamily: UI.font, fontSize: '0.88rem', lineHeight: 1.55, background: m.role === 'user' ? UI.accentSoft : 'rgba(255,255,255,0.05)', border: `1px solid ${m.role === 'user' ? UI.borderAccent : UI.border}`, color: m.role === 'user' ? UI.ink : UI.ink2 }}>{m.content}</div>)}
+            {chatThinking && <div style={{ alignSelf: 'flex-start', color: UI.muted, fontFamily: UI.font, fontSize: '0.86rem', padding: '4px 13px' }}>Raj is thinking…</div>}
           </div>
-          <div style={{ display: 'flex', gap: 8, padding: '10px 14px 14px' }}><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} placeholder="Ask Raj…" autoFocus style={inputStyle} /><button onClick={submit} disabled={chatThinking || !input.trim()} style={{ ...btn, opacity: chatThinking || !input.trim() ? 0.4 : 1 }}>SEND</button></div>
+          <div style={{ display: 'flex', gap: 8, padding: '10px 14px 14px' }}><input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') submit() }} placeholder="Ask about Raj's work…" autoFocus style={inputStyle} /><button onClick={submit} disabled={chatThinking || !input.trim()} style={{ ...deskBtn, opacity: chatThinking || !input.trim() ? 0.4 : 1 }}>Send</button></div>
         </div>
       )}
 
       {mode === 'pc' && <Desktop portfolio={portfolio} onLeave={() => setMode('roam')} chat={{ history: chatHistory, thinking: chatThinking, send: (m) => { audioRef.current?.blipSend(); sendChat(m) } }} click={() => audioRef.current?.click()} />}
 
       {mode === 'loading' && (
-        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#05080c', color: '#39ff7a', fontFamily: 'monospace', zIndex: 60, gap: 16 }}>
-          <div style={{ letterSpacing: '0.18em' }}>BUILDING RAJ'S ROOM…</div>
-          <div style={{ width: 220, height: 4, background: 'rgba(57,255,122,0.2)', borderRadius: 2, overflow: 'hidden' }}><div style={{ width: '60%', height: '100%', background: '#39ff7a', animation: 's3dLoad 1.2s ease-in-out infinite' }} /></div>
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0a0b0d', color: UI.ink, fontFamily: UI.font, zIndex: 60, gap: 18 }}>
+          <div style={{ fontWeight: 600, letterSpacing: '0.02em' }}>Building Raj's room…</div>
+          <div style={{ width: 220, height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}><div style={{ width: '55%', height: '100%', background: UI.gradient, animation: 's3dLoad 1.2s ease-in-out infinite' }} /></div>
         </div>
       )}
       {err && <div style={{ position: 'absolute', bottom: 70, left: '50%', transform: 'translateX(-50%)', color: '#ff8080', fontFamily: 'monospace', fontSize: '0.82rem', zIndex: 60 }}>(avatar failed to load — chat still works)</div>}
@@ -539,9 +543,25 @@ export default function Scene3D({ portfolio, chatHistory, chatThinking, sendChat
   )
 }
 
-const btn: React.CSSProperties = { background: 'rgba(0,0,0,0.55)', border: '1px solid rgba(57,255,122,0.55)', color: '#39ff7a', fontFamily: 'monospace', fontSize: '0.8rem', letterSpacing: '0.06em', padding: '9px 13px', cursor: 'pointer', borderRadius: 8, backdropFilter: 'blur(6px)' }
-const deskBtn: React.CSSProperties = { background: 'rgba(57,255,122,0.1)', border: '1px solid rgba(57,255,122,0.45)', color: '#39ff7a', fontFamily: 'monospace', fontSize: '0.78rem', padding: '7px 13px', cursor: 'pointer', borderRadius: 7 }
-const dpad: React.CSSProperties = { background: 'rgba(57,255,122,0.16)', border: '1px solid rgba(57,255,122,0.5)', color: '#39ff7a', fontFamily: 'monospace', fontWeight: 700, borderRadius: 10, cursor: 'pointer', touchAction: 'none' }
-const inputStyle: React.CSSProperties = { flex: 1, background: 'rgba(0,0,0,0.5)', border: '1px solid rgba(57,255,122,0.35)', borderRadius: 8, color: '#d6ffe6', fontFamily: 'monospace', fontSize: '0.92rem', padding: '10px 13px', outline: 'none' }
-const cardStyle: React.CSSProperties = { background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(57,255,122,0.18)', borderRadius: 10, padding: '14px 16px', marginBottom: 14 }
-const tagStyle: React.CSSProperties = { fontSize: '0.74rem', padding: '3px 9px', borderRadius: 20, background: 'rgba(57,255,122,0.1)', border: '1px solid rgba(57,255,122,0.3)', color: '#9fe9bf' }
+// ── Palette shared with the classic page (emerald + cyan on dark) ────────────
+const UI = {
+  accent: '#10b981',      // emerald
+  accent2: '#22d3ee',     // cyan
+  ink: '#fafafa',
+  ink2: '#d4d4d8',
+  muted: '#a1a1aa',
+  panel: 'rgba(18,20,24,0.92)',
+  panel2: 'rgba(24,27,33,0.7)',
+  border: 'rgba(255,255,255,0.10)',
+  borderAccent: 'rgba(16,185,129,0.45)',
+  accentSoft: 'rgba(16,185,129,0.12)',
+  font: "'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif",
+  gradient: 'linear-gradient(135deg, #10b981 0%, #22d3ee 100%)',
+}
+
+const btn: React.CSSProperties = { background: 'rgba(12,14,18,0.7)', border: `1px solid ${UI.border}`, color: UI.ink, fontFamily: UI.font, fontSize: '0.8rem', fontWeight: 600, letterSpacing: '0.02em', padding: '9px 14px', cursor: 'pointer', borderRadius: 10, backdropFilter: 'blur(10px)' }
+const deskBtn: React.CSSProperties = { background: UI.accentSoft, border: `1px solid ${UI.borderAccent}`, color: UI.accent, fontFamily: UI.font, fontWeight: 600, fontSize: '0.78rem', padding: '8px 14px', cursor: 'pointer', borderRadius: 9 }
+const dpad: React.CSSProperties = { background: 'rgba(16,185,129,0.14)', border: `1px solid ${UI.borderAccent}`, color: UI.accent, fontFamily: UI.font, fontWeight: 700, borderRadius: 12, cursor: 'pointer', touchAction: 'none', backdropFilter: 'blur(6px)' }
+const inputStyle: React.CSSProperties = { flex: 1, background: 'rgba(0,0,0,0.4)', border: `1px solid ${UI.border}`, borderRadius: 10, color: UI.ink, fontFamily: UI.font, fontSize: '0.92rem', padding: '11px 14px', outline: 'none' }
+const cardStyle: React.CSSProperties = { background: UI.panel2, border: `1px solid ${UI.border}`, borderRadius: 13, padding: '16px 18px', marginBottom: 14 }
+const tagStyle: React.CSSProperties = { fontSize: '0.72rem', fontWeight: 500, padding: '4px 10px', borderRadius: 7, background: UI.accentSoft, border: `1px solid ${UI.borderAccent}`, color: UI.accent, fontFamily: UI.font }

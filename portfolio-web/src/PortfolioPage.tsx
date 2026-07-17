@@ -1,81 +1,25 @@
 import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
-import fallbackData from './portfolioFallback.json'
+import { FALLBACK_PORTFOLIO, isValidProject } from './usePortfolio'
+import type {
+  ExperienceItem,
+  ProjectCard,
+  SocialLinks,
+  Scheduling,
+  SectionConfig,
+  PortfolioPayload,
+} from './usePortfolio'
 
 const Terminal3D = lazy(() => import('./Terminal3D'))
 
-// Static snapshot of the portfolio, bundled at build time. Rendered instantly so
-// the page is never blank while the backend/DB cold-starts (Render/Neon spin down
-// on inactivity). Live data replaces it as soon as /portfolio responds.
-const FALLBACK_PORTFOLIO = fallbackData as unknown as PortfolioPayload
+// FALLBACK_PORTFOLIO (bundled snapshot) and isValidProject (junk-card filter) are
+// shared with the 3D room via ./usePortfolio so the two surfaces never drift.
 
 // Public path to the downloadable resume (lives in portfolio-web/public/).
 const RESUME_URL = '/Raj_Sahoo_Resume.pdf'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ExperienceItem = {
-  company: string
-  role?: string
-  dateRange?: string
-  summary?: string
-  items: string[]
-  highlights: string[]
-}
-
-type SkillCategory = {
-  category: string
-  items: string[]
-}
-
-type ProjectCard = {
-  id: string
-  title: string
-  summary: string
-  techStack: string[]
-  sourcePath: string
-  isVisible?: boolean
-  whatItDoes?: string[]
-}
-
-type SocialLinks = {
-  linkedin?: string
-  github?: string
-  email?: string
-}
-
-type Scheduling = {
-  calLink?: string
-  enabled?: boolean
-  headline?: string
-  subtext?: string
-}
-
-type SectionConfig = {
-  id: string
-  label: string
-  visible: boolean
-}
-
-type PortfolioPayload = {
-  profile: {
-    name: string
-    location: string
-    headline: string
-    about: string
-    eyebrow?: string
-    openToWork: boolean
-    currentLocation?: string
-    desiredLocations?: string[]
-    experience: ExperienceItem[]
-    skills: SkillCategory[]
-    resumeProjects: string[]
-    socialLinks?: SocialLinks
-  }
-  projects: ProjectCard[]
-  scheduling?: Scheduling
-  sections?: SectionConfig[]
-}
-
+// Types are imported from ./usePortfolio (shared with the 3D room).
 type ChatMessage = { role: 'user' | 'assistant'; content: string }
 
 // Conversational contact-capture state machine for the chatbot.
@@ -499,7 +443,7 @@ export default function PortfolioPage() {
   }
 
   const profile = portfolio?.profile
-  const projects = (portfolio?.projects ?? []).filter(p => p.isVisible !== false)
+  const projects = (portfolio?.projects ?? []).filter(p => p.isVisible !== false && isValidProject(p))
   const skills = profile?.skills ?? []
   const experience = profile?.experience ?? []
   const openToWork = profile?.openToWork ?? false
