@@ -143,6 +143,11 @@ export class AudioManager {
     seq.forEach((f, i) => setTimeout(() => this.tone(f, 0.5, 'sine', 0.14), i * 110))
   }
 
+  // Airy "whoosh" when a holographic panel opens.
+  panelOpen() { if (!this.muted) { this.tone(320, 0.26, 'sine', 0.12, 720); setTimeout(() => this.tone(900, 0.18, 'triangle', 0.08), 60) } }
+  // Soft high tick when a project pillar becomes focusable.
+  focusPing() { if (!this.muted) this.tone(1320, 0.08, 'sine', 0.06, 1560) }
+
   setMuted(m: boolean) {
     this.muted = m
     const now = this.ctx.currentTime

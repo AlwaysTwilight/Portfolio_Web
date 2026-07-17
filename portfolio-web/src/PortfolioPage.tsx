@@ -266,7 +266,10 @@ export default function PortfolioPage() {
   const [theme, setTheme] = useState<'dark' | 'light'>(() =>
     (localStorage.getItem('theme') as 'dark' | 'light') ?? 'dark'
   )
-  const [terminalMode, setTerminalMode] = useState(false)
+  // Deep-link: /?room opens the 3D Neural Studio directly (shareable link).
+  const [terminalMode, setTerminalMode] = useState(
+    () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('room')
+  )
   const chatEndRef = useRef<HTMLDivElement>(null)
   const chatInputRef = useRef<HTMLInputElement>(null)
 
@@ -588,10 +591,13 @@ export default function PortfolioPage() {
             <button
               className="terminal-mode-btn"
               onClick={() => setTerminalMode(true)}
-              title="Explore the interactive 3D room"
+              title="Enter the interactive 3D Neural Studio"
               type="button"
             >
-              <span style={{ fontFamily: 'monospace', fontSize: 11, letterSpacing: 1 }}>[ 3D ROOM ]</span>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <path d="M12 2 2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
+              </svg>
+              <span style={{ fontSize: 11, letterSpacing: 0.5, fontWeight: 600 }}>3D Studio</span>
             </button>
             <button
               className="theme-btn"

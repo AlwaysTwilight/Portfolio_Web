@@ -1091,20 +1091,22 @@ select.field-input { cursor: pointer; }
 /* ── Terminal mode toggle ── */
 .terminal-mode-btn {
   height: 30px;
-  padding: 0 10px;
-  border-radius: 5px;
-  border: 1px solid rgba(0, 255, 65, 0.4);
-  background: rgba(0, 255, 65, 0.06);
-  color: #00cc33;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-hi);
+  background: var(--a-lt);
+  color: var(--a);
   cursor: pointer;
   transition: all 150ms;
-  font-family: 'Courier New', monospace;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .terminal-mode-btn:hover {
-  background: rgba(0, 255, 65, 0.13);
-  border-color: rgba(0, 255, 65, 0.7);
-  color: #00ff41;
-  box-shadow: 0 0 8px rgba(0, 255, 65, 0.25);
+  background: var(--a-md);
+  border-color: var(--a);
+  color: var(--a);
+  box-shadow: 0 0 12px var(--a-gl);
 }
 
 /* ── Hero — two-column layout ── */
