@@ -54,6 +54,11 @@ class EmailService:
             "html": body_html,
             "reply_to": email.strip() or settings.contact_notify_email,
         }
+        return self._send(payload)
+
+    def _send(self, payload: dict) -> dict:
+        if not self.is_configured():
+            return {"sent": False, "reason": "email_not_configured"}
         try:
             resp = requests.post(
                 RESEND_ENDPOINT,
@@ -69,6 +74,108 @@ class EmailService:
             return {"sent": True, "id": (resp.json() or {}).get("id")}
         except Exception as exc:  # noqa: BLE001
             return {"sent": False, "reason": "request_failed", "detail": str(exc)[:300]}
+
+    @staticmethod
+    def _moderate_url(kind: str, token: str, action: str) -> str:
+        base = settings.public_base_url.rstrip("/")
+        return f"{base}/{kind}/moderate?token={token}&action={action}"
+
+    @staticmethod
+    def _button(url: str, label: str, color: str) -> str:
+        return (
+            f'<a href="{url}" style="display:inline-block;padding:10px 22px;margin:0 6px;'
+            f'background:{color};color:#fff;border-radius:8px;text-decoration:none;'
+            f'font-size:14px;font-weight:600;">{label}</a>'
+        )
+
+    def send_review_notification(self, review: dict) -> dict:
+        if not self.is_configured():
+            return {"sent": False, "reason": "email_not_configured"}
+
+        name = html.escape(str(review.get("name") or "Someone"))
+        position = html.escape(str(review.get("position") or ""))
+        company = html.escape(str(review.get("company") or ""))
+        text = html.escape(str(review.get("review_text") or "")).replace("\n", "<br>")
+        rating = int(review.get("rating") or 0)
+        stars = ("★" * rating + "☆" * (5 - rating)) if rating else "— no rating —"
+        linkedin = str(review.get("linkedin_url") or "").strip()
+        skills = [html.escape(str(s)) for s in (review.get("endorsed_skills") or [])]
+        token = str(review.get("approval_token") or "")
+
+        role_line = position + (f" · {company}" if company else "")
+        linkedin_html = (
+            f'<tr><td style="padding:6px 0;color:#888;">LinkedIn</td>'
+            f'<td style="padding:6px 0;"><a href="{html.escape(linkedin)}" style="color:#4f46e5;">{html.escape(linkedin)}</a></td></tr>'
+            if linkedin else ""
+        )
+        skills_html = (
+            f'<tr><td style="padding:6px 0;color:#888;">Endorses</td>'
+            f'<td style="padding:6px 0;color:#111;">{", ".join(skills)}</td></tr>'
+            if skills else ""
+        )
+
+        approve_url = self._moderate_url("reviews", token, "approve")
+        reject_url = self._moderate_url("reviews", token, "reject")
+
+        body_html = f"""
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;">
+          <h2 style="margin:0 0 4px;color:#111;">New review awaiting your approval</h2>
+          <p style="color:#666;font-size:13px;margin:0 0 20px;">It stays hidden until you approve it.</p>
+          <table style="width:100%;border-collapse:collapse;font-size:14px;">
+            <tr><td style="padding:6px 0;color:#888;width:90px;">From</td><td style="padding:6px 0;color:#111;">{name}</td></tr>
+            <tr><td style="padding:6px 0;color:#888;">Role</td><td style="padding:6px 0;color:#111;">{role_line}</td></tr>
+            <tr><td style="padding:6px 0;color:#888;">Rating</td><td style="padding:6px 0;color:#f59e0b;font-size:16px;">{stars}</td></tr>
+            {linkedin_html}
+            {skills_html}
+          </table>
+          <div style="margin-top:16px;padding:16px;background:#f6f6f7;border-radius:10px;color:#222;line-height:1.6;font-size:14px;">
+            {text}
+          </div>
+          <div style="margin-top:24px;text-align:center;">
+            {self._button(approve_url, "✓ Approve &amp; publish", "#16a34a")}
+            {self._button(reject_url, "✕ Reject", "#dc2626")}
+          </div>
+          <p style="margin-top:20px;color:#999;font-size:12px;text-align:center;">
+            One-click links — no login needed. You can also manage reviews in the admin panel.
+          </p>
+        </div>
+        """
+        return self._send({
+            "from": f"Portfolio <{settings.contact_from_email}>",
+            "to": [settings.contact_notify_email],
+            "subject": f"New review from {review.get('name') or 'a visitor'} — approve to publish",
+            "html": body_html,
+        })
+
+    def send_guestbook_notification(self, note: dict) -> dict:
+        if not self.is_configured():
+            return {"sent": False, "reason": "email_not_configured"}
+
+        name = html.escape(str(note.get("name") or "Someone"))
+        text = html.escape(str(note.get("note") or "")).replace("\n", "<br>")
+        token = str(note.get("approval_token") or "")
+        approve_url = self._moderate_url("guestbook", token, "approve")
+        reject_url = self._moderate_url("guestbook", token, "reject")
+
+        body_html = f"""
+        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;">
+          <h2 style="margin:0 0 4px;color:#111;">New guest book note awaiting approval</h2>
+          <p style="color:#666;font-size:13px;margin:0 0 16px;">Left by {name} in your 3D room.</p>
+          <div style="padding:16px;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;color:#222;line-height:1.6;font-size:14px;">
+            {text}
+          </div>
+          <div style="margin-top:24px;text-align:center;">
+            {self._button(approve_url, "✓ Approve", "#16a34a")}
+            {self._button(reject_url, "✕ Reject", "#dc2626")}
+          </div>
+        </div>
+        """
+        return self._send({
+            "from": f"Portfolio <{settings.contact_from_email}>",
+            "to": [settings.contact_notify_email],
+            "subject": f"New guest book note from {note.get('name') or 'a visitor'}",
+            "html": body_html,
+        })
 
 
 email_service = EmailService()

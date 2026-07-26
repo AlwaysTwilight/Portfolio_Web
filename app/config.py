@@ -51,6 +51,12 @@ class Settings:
     resend_api_key: str = os.getenv('RESEND_API_KEY', '')
     contact_notify_email: str = os.getenv('CONTACT_NOTIFY_EMAIL', 'rs1092002@gmail.com')
     contact_from_email: str = os.getenv('CONTACT_FROM_EMAIL', 'onboarding@resend.dev')
+    # Base URL of THIS backend — used to build one-click approve/reject links in
+    # notification emails. Falls back to the Render deployment when unset.
+    public_base_url: str = os.getenv('PUBLIC_BASE_URL', 'https://portfolio-web-htpn.onrender.com').rstrip('/')
+    # Base URL of the public site — used to deep-link the "leave a review" page
+    # and to redirect after a moderation action. Falls back to the Vercel site.
+    public_site_url: str = os.getenv('PUBLIC_SITE_URL', 'https://portfolio-web-five-tawny.vercel.app').rstrip('/')
     mongodb_uri: str = os.getenv('MONGODB_URI', '')
     mongodb_db: str = os.getenv('MONGODB_DB', 'portfolio')
     cors_allow_origins: list[str] = field(

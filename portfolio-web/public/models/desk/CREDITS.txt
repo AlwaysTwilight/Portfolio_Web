@@ -1,0 +1,22 @@
+Desk scene 3D assets
+=====================
+
+desk.glb, lamp.glb, keyboard.glb, mouse.glb, plant.glb, notebook.glb
+  Source: Kenney "Furniture Kit" (https://kenney.nl/assets/furniture-kit)
+  License: CC0 1.0 (Creative Commons Zero / Public Domain)
+
+mug.glb
+  Source: Kenney "Food Kit" (https://kenney.nl/assets/food-kit)
+  License: CC0 1.0 (Creative Commons Zero / Public Domain)
+
+Procedural (built in Three.js code, no external model — no suitable free/
+downloadable CC0 asset was found for a gaming chair or a curved monitor):
+  - Gaming chair (bucket seat, side bolsters, headrest, 5-star wheel base)
+  - Curved monitor (bent screen segment + stand)
+  - Record player, pencil, wall clock
+
+The mini desk robot reuses /models/robot_mascot.glb, the same asset already
+used by the hero section's robot mascot.
+
+CC0 assets are free for personal, educational, and commercial use with no
+attribution required. Credit to Kenney (www.kenney.nl) is appreciated.

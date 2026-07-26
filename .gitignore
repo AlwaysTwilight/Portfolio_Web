@@ -44,3 +44,9 @@ env/
 Thumbs.db
 .idea/
 .vscode/
+.claude/
+
+# Source/authoring material not needed to run the app
+/model/
+/projects/
+/image.png

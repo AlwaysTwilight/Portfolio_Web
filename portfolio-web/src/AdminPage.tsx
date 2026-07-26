@@ -102,7 +102,33 @@ type SiteSection = {
   visible: boolean
 }
 
-type SectionId = 'overview' | 'profile' | 'experience' | 'skills' | 'projects' | 'documents' | 'social' | 'messages' | 'scheduling' | 'sections'
+type SectionId = 'overview' | 'profile' | 'experience' | 'skills' | 'projects' | 'documents' | 'social' | 'messages' | 'reviews' | 'guestbook' | 'insights' | 'scheduling' | 'sections'
+
+type AdminReview = {
+  review_id: string
+  name: string
+  position: string
+  company: string
+  review_text: string
+  rating: number
+  linkedin_url: string
+  endorsed_skills: string[]
+  status: string
+  created_at: string
+}
+
+type GuestbookNote = {
+  note_id: string
+  name: string
+  note: string
+  status: string
+  created_at: string
+}
+
+type EventSummary = {
+  totals: Array<{ event_type: string; n: number }>
+  top_targets: Array<{ event_type: string; target: string; n: number }>
+}
 
 const API_BASE_URL     = import.meta.env.VITE_API_BASE_URL     || 'http://localhost:8000'
 const PORTFOLIO_ORIGIN = import.meta.env.VITE_PORTFOLIO_ORIGIN || 'http://localhost:3000'
@@ -138,6 +164,9 @@ const ICONS: Record<SectionId, string> = {
   documents:  'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8',
   social:     'M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6z M2 9h4v12H2z M4 6a2 2 0 1 0 0-4 2 2 0 0 0 0 4z',
   messages:   'M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z',
+  reviews:    'M12 2l2.4 7.4H22l-6 4.6 2.3 7.4-6.3-4.6L5.7 21 8 14 2 9.4h7.6z',
+  guestbook:  'M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z',
+  insights:   'M3 3v18h18 M18 9l-5 5-3-3-4 4',
   scheduling: 'M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z',
   sections:   'M4 5h16M4 12h16M4 19h16M8 5v14',
 }
@@ -196,6 +225,9 @@ function AdminPage() {
   const [socialGithub,   setSocialGithub]   = useState('')
   const [socialEmail,    setSocialEmail]    = useState('')
   const [contactMessages, setContactMessages] = useState<ContactMessage[]>([])
+  const [reviews, setReviews] = useState<AdminReview[]>([])
+  const [guestbook, setGuestbook] = useState<GuestbookNote[]>([])
+  const [insights, setInsights] = useState<EventSummary>({ totals: [], top_targets: [] })
   const [scheduling, setScheduling] = useState<Scheduling>({ calLink: '', enabled: false, headline: "Let's talk", subtext: '' })
   const [siteSections, setSiteSections] = useState<SiteSection[]>([])
   const bcRef = useRef<BroadcastChannel | null>(null)
@@ -256,6 +288,9 @@ function AdminPage() {
     void loadProjects()
     void loadRagDocs()
     void loadMessages()
+    void loadReviews()
+    void loadGuestbook()
+    void loadInsights()
     void loadScheduling()
     void loadSections()
   }
@@ -282,6 +317,21 @@ function AdminPage() {
 
   async function loadMessages() {
     try { setContactMessages((await api<{ messages: ContactMessage[] }>('/admin/messages')).messages || []) }
+    catch { /* keep usable */ }
+  }
+
+  async function loadReviews() {
+    try { setReviews((await api<{ reviews: AdminReview[] }>('/admin/reviews')).reviews || []) }
+    catch { /* keep usable */ }
+  }
+
+  async function loadGuestbook() {
+    try { setGuestbook((await api<{ notes: GuestbookNote[] }>('/admin/guestbook')).notes || []) }
+    catch { /* keep usable */ }
+  }
+
+  async function loadInsights() {
+    try { setInsights(await api<EventSummary>('/admin/insights')) }
     catch { /* keep usable */ }
   }
 
@@ -398,6 +448,9 @@ function AdminPage() {
     { id: 'projects',   label: 'Projects' },
     { id: 'documents',  label: 'Documents' },
     { id: 'messages',   label: 'Messages' },
+    { id: 'reviews',    label: 'Reviews' },
+    { id: 'guestbook',  label: 'Guest Book' },
+    { id: 'insights',   label: 'Insights' },
     { id: 'scheduling', label: 'Scheduling' },
     { id: 'sections',   label: 'Sections' },
     { id: 'social',     label: 'Social Links' },
@@ -617,6 +670,46 @@ function AdminPage() {
               }}
             />
           )}
+
+          {section === 'reviews' && (
+            <ReviewsSection
+              reviews={reviews}
+              onApprove={async (id) => {
+                try { await api(`/admin/reviews/${id}/approve`, { method: 'PUT' }); await loadReviews(); notifyPortfolio() }
+                catch (e) { flash(e instanceof Error ? e.message : 'Failed.') }
+              }}
+              onReject={async (id) => {
+                try { await api(`/admin/reviews/${id}/reject`, { method: 'PUT' }); await loadReviews(); notifyPortfolio() }
+                catch (e) { flash(e instanceof Error ? e.message : 'Failed.') }
+              }}
+              onDelete={async (id) => {
+                if (!confirm('Delete this review permanently?')) return
+                try { await api(`/admin/reviews/${id}`, { method: 'DELETE' }); await loadReviews(); notifyPortfolio() }
+                catch (e) { flash(e instanceof Error ? e.message : 'Delete failed.') }
+              }}
+            />
+          )}
+
+          {section === 'guestbook' && (
+            <GuestbookSection
+              notes={guestbook}
+              onApprove={async (id) => {
+                try { await api(`/admin/guestbook/${id}/approve`, { method: 'PUT' }); await loadGuestbook() }
+                catch (e) { flash(e instanceof Error ? e.message : 'Failed.') }
+              }}
+              onReject={async (id) => {
+                try { await api(`/admin/guestbook/${id}/reject`, { method: 'PUT' }); await loadGuestbook() }
+                catch (e) { flash(e instanceof Error ? e.message : 'Failed.') }
+              }}
+              onDelete={async (id) => {
+                if (!confirm('Delete this note permanently?')) return
+                try { await api(`/admin/guestbook/${id}`, { method: 'DELETE' }); await loadGuestbook() }
+                catch (e) { flash(e instanceof Error ? e.message : 'Delete failed.') }
+              }}
+            />
+          )}
+
+          {section === 'insights' && <InsightsSection data={insights} onRefresh={loadInsights} />}
 
           {section === 'scheduling' && (
             <SchedulingSection
@@ -1630,6 +1723,176 @@ function MessagesSection({
         ))}
         {messages.length === 0 && <EmptyState text="No messages yet." />}
       </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Reviews
+══════════════════════════════════════════════ */
+function fmtDate(iso: string) {
+  try { return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) }
+  catch { return iso }
+}
+
+function ReviewsSection({
+  reviews, onApprove, onReject, onDelete,
+}: {
+  reviews: AdminReview[]
+  onApprove: (id: string) => Promise<void>
+  onReject: (id: string) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const [filter, setFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending')
+  const counts = {
+    pending: reviews.filter(r => r.status === 'pending').length,
+    approved: reviews.filter(r => r.status === 'approved').length,
+    rejected: reviews.filter(r => r.status === 'rejected').length,
+    all: reviews.length,
+  }
+  const shown = filter === 'all' ? reviews : reviews.filter(r => r.status === filter)
+  return (
+    <>
+      <SectionHead
+        title="Reviews"
+        sub="Reviews are hidden until you approve them. Approving publishes to the portfolio + 3D room instantly."
+      />
+      <div className="rv-admin-tabs">
+        {(['pending', 'approved', 'rejected', 'all'] as const).map(f => (
+          <button
+            key={f}
+            className={`rv-admin-tab${filter === f ? ' active' : ''}`}
+            onClick={() => setFilter(f)}
+            type="button"
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)} ({counts[f]})
+          </button>
+        ))}
+      </div>
+      <div className="doc-list">
+        {shown.map(r => (
+          <div className="cms-card" key={r.review_id} style={{ marginBottom: '0.75rem' }}>
+            <div className="msg-head">
+              <div>
+                <p className="doc-key">
+                  {r.name}
+                  <span className={`rv-admin-status rv-admin-status--${r.status}`}>{r.status}</span>
+                  {r.rating > 0 && <span className="rv-admin-rating">{'★'.repeat(r.rating)}</span>}
+                </p>
+                <p className="doc-sub">
+                  {[r.position, r.company].filter(Boolean).join(' · ')} · {fmtDate(r.created_at)}
+                  {r.linkedin_url && <> · <a href={r.linkedin_url} target="_blank" rel="noopener noreferrer">LinkedIn ↗</a></>}
+                </p>
+              </div>
+              <div className="preview-actions">
+                {r.status !== 'approved' && <button className="btn-admin-outline btn-xs" onClick={() => onApprove(r.review_id)} type="button">Approve</button>}
+                {r.status !== 'rejected' && <button className="btn-admin-outline btn-xs" onClick={() => onReject(r.review_id)} type="button">Reject</button>}
+                <button className="btn-danger btn-xs" onClick={() => onDelete(r.review_id)} type="button">Delete</button>
+              </div>
+            </div>
+            <p className="msg-body">{r.review_text}</p>
+            {r.endorsed_skills.length > 0 && (
+              <div className="rv-admin-endorse">
+                {r.endorsed_skills.map(s => <span key={s} className="rv-admin-endorse-chip">✓ {s}</span>)}
+              </div>
+            )}
+          </div>
+        ))}
+        {shown.length === 0 && <EmptyState text={`No ${filter === 'all' ? '' : filter + ' '}reviews.`} />}
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Guest Book
+══════════════════════════════════════════════ */
+function GuestbookSection({
+  notes, onApprove, onReject, onDelete,
+}: {
+  notes: GuestbookNote[]
+  onApprove: (id: string) => Promise<void>
+  onReject: (id: string) => Promise<void>
+  onDelete: (id: string) => Promise<void>
+}) {
+  const pending = notes.filter(n => n.status === 'pending').length
+  return (
+    <>
+      <SectionHead
+        title="Guest Book"
+        sub={`Notes left in the 3D room. Hidden until approved.${pending ? ` · ${pending} pending` : ''}`}
+      />
+      <div className="doc-list">
+        {notes.map(n => (
+          <div className="cms-card" key={n.note_id} style={{ marginBottom: '0.75rem' }}>
+            <div className="msg-head">
+              <div>
+                <p className="doc-key">
+                  {n.name}
+                  <span className={`rv-admin-status rv-admin-status--${n.status}`}>{n.status}</span>
+                </p>
+                <p className="doc-sub">{fmtDate(n.created_at)}</p>
+              </div>
+              <div className="preview-actions">
+                {n.status !== 'approved' && <button className="btn-admin-outline btn-xs" onClick={() => onApprove(n.note_id)} type="button">Approve</button>}
+                {n.status !== 'rejected' && <button className="btn-admin-outline btn-xs" onClick={() => onReject(n.note_id)} type="button">Reject</button>}
+                <button className="btn-danger btn-xs" onClick={() => onDelete(n.note_id)} type="button">Delete</button>
+              </div>
+            </div>
+            <p className="msg-body">{n.note}</p>
+          </div>
+        ))}
+        {notes.length === 0 && <EmptyState text="No guest book notes yet." />}
+      </div>
+    </>
+  )
+}
+
+/* ══════════════════════════════════════════════
+   Insights
+══════════════════════════════════════════════ */
+function InsightsSection({ data, onRefresh }: { data: EventSummary; onRefresh: () => Promise<void> }) {
+  const labels: Record<string, string> = {
+    project_click: 'Project clicks',
+    resume_download: 'Résumé downloads',
+    chat_question: 'Chat questions',
+    recruiter_mode: 'Recruiter mode opens',
+    vcard_download: 'Contact saves (vCard)',
+    review_start: 'Review page opens',
+  }
+  const topChatQuestions = data.top_targets.filter(t => t.event_type === 'chat_question').slice(0, 10)
+  const topProjects = data.top_targets.filter(t => t.event_type === 'project_click').slice(0, 10)
+  return (
+    <>
+      <SectionHead title="Insights" sub="Lightweight, cookie-free analytics of how visitors use the site." />
+      <div className="preview-actions" style={{ marginBottom: '1rem' }}>
+        <button className="btn-admin-outline btn-xs" onClick={() => void onRefresh()} type="button">Refresh</button>
+      </div>
+      <div className="ins-grid">
+        {data.totals.length === 0 && <EmptyState text="No activity recorded yet." />}
+        {data.totals.map(t => (
+          <div className="ins-tile" key={t.event_type}>
+            <span className="ins-value">{t.n}</span>
+            <span className="ins-label">{labels[t.event_type] ?? t.event_type}</span>
+          </div>
+        ))}
+      </div>
+      {topProjects.length > 0 && (
+        <div className="ins-block">
+          <h4 className="ins-block-title">Most-clicked projects</h4>
+          {topProjects.map(t => (
+            <div className="ins-row" key={t.target}><span>{t.target}</span><strong>{t.n}</strong></div>
+          ))}
+        </div>
+      )}
+      {topChatQuestions.length > 0 && (
+        <div className="ins-block">
+          <h4 className="ins-block-title">Popular chat questions</h4>
+          {topChatQuestions.map((t, i) => (
+            <div className="ins-row" key={i}><span>{t.target}</span><strong>{t.n}</strong></div>
+          ))}
+        </div>
+      )}
     </>
   )
 }

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import html
 import re
+import secrets
+import time
+from collections import defaultdict, deque
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile, status
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from app.config import settings
@@ -82,6 +87,30 @@ class SectionsRequest(BaseModel):
     sections: list[dict] = []
 
 
+class ReviewRequest(BaseModel):
+    name: str
+    position: str
+    review_text: str
+    company: str = ""
+    rating: int = 0
+    linkedin_url: str = ""
+    endorsed_skills: list[str] = []
+    # Honeypot — real users leave this empty; bots tend to fill every field.
+    website: str = ""
+
+
+class GuestbookRequest(BaseModel):
+    name: str
+    note: str
+    color: str = ""
+    website: str = ""
+
+
+class EventRequest(BaseModel):
+    event_type: str
+    target: str = ""
+
+
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -96,6 +125,22 @@ def _validate_contact(name: str, email: str, message: str) -> tuple[str, str, st
     if len(message) < 2 or len(message) > 4000:
         raise HTTPException(status_code=422, detail="Message must be between 2 and 4000 characters.")
     return name, email, message
+
+
+def _valid_skill_names() -> set[str]:
+    """Skill names currently on the public portfolio — used to validate that
+    endorsed skills actually correspond to real page skills."""
+    names: set[str] = set()
+    try:
+        payload = portfolio_service.get_portfolio_payload()
+        for group in payload.get("skills", []) or []:
+            for item in group.get("items", []) or []:
+                cleaned = str(item).strip()
+                if cleaned:
+                    names.add(cleaned.lower())
+    except Exception:
+        pass
+    return names
 
 
 class RewriteRequest(BaseModel):
@@ -120,8 +165,31 @@ def _require_admin(x_admin_token: str | None) -> None:
     # If ADMIN_TOKEN is unset, keep local dev friction-free.
     if not settings.admin_token:
         return
-    if not x_admin_token or x_admin_token != settings.admin_token:
+    # Constant-time comparison — a plain `!=` leaks timing information an
+    # attacker could use to guess the token one character at a time.
+    if not x_admin_token or not secrets.compare_digest(x_admin_token, settings.admin_token):
         raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# ── Rate limiting ─────────────────────────────────────────────────────────────
+# A simple in-memory sliding window per (bucket, client IP). It resets on
+# restart and isn't shared across worker processes — not a substitute for a
+# real gateway limiter — but it stops naive scripted spam/cost-abuse on the
+# public write endpoints (chat, contact, reviews, guestbook, upload) without
+# adding new infrastructure for a single-instance personal site.
+_rate_buckets: dict[str, deque[float]] = defaultdict(deque)
+
+
+def _rate_limit(request: Request, bucket: str, limit: int, window_seconds: float) -> None:
+    client_ip = request.client.host if request.client else "unknown"
+    key = f"{bucket}:{client_ip}"
+    now = time.monotonic()
+    bucket_q = _rate_buckets[key]
+    while bucket_q and now - bucket_q[0] > window_seconds:
+        bucket_q.popleft()
+    if len(bucket_q) >= limit:
+        raise HTTPException(status_code=429, detail="Too many requests — please slow down and try again shortly.")
+    bucket_q.append(now)
 
 
 def _backfill_active_versions() -> None:
@@ -181,7 +249,8 @@ def get_scheduling() -> dict:
 
 
 @app.post('/contact')
-def submit_contact(request: ContactRequest) -> dict:
+def submit_contact(request: ContactRequest, http_req: Request) -> dict:
+    _rate_limit(http_req, "contact", limit=5, window_seconds=300)
     name, email, message = _validate_contact(request.name, request.email, request.message)
     source = "chat" if request.source == "chat" else "form"
     creator = getattr(metadata_store, "create_contact_message", None)
@@ -192,6 +261,216 @@ def submit_contact(request: ContactRequest) -> dict:
         "stored": bool(stored),
         "emailed": bool(delivery.get("sent")),
     }
+
+
+# ── Reviews / testimonials ──────────────────────────────────────────────────
+
+def _moderation_page(title: str, message: str, confirm_action: tuple[str, str, str] | None = None) -> HTMLResponse:
+    # `title`/`message` are only ever built from hardcoded strings + values
+    # already run through html.escape() by the caller — never raw user input.
+    site = settings.public_site_url
+    confirm_html = ""
+    if confirm_action:
+        endpoint, token, action = confirm_action
+        confirm_html = f"""
+    <form method="post" action="{endpoint}">
+      <input type="hidden" name="token" value="{html.escape(token)}">
+      <input type="hidden" name="action" value="{html.escape(action)}">
+      <button type="submit" style="display:inline-block;padding:10px 22px;background:{'#16a34a' if action == 'approve' else '#dc2626'};color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">
+        Confirm {'approve' if action == 'approve' else 'reject'}
+      </button>
+    </form>"""
+    html_body = f"""<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title}</title></head>
+<body style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0b0b12;color:#e8e8f0;display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0;">
+  <div style="text-align:center;max-width:460px;padding:40px 28px;background:#15151f;border:1px solid #2a2a3a;border-radius:16px;">
+    <div style="font-size:44px;margin-bottom:12px;">{title.split(' ')[0]}</div>
+    <h1 style="font-size:20px;margin:0 0 8px;">{title}</h1>
+    <p style="color:#9a9ab0;font-size:14px;line-height:1.6;margin:0 0 24px;">{message}</p>
+    {confirm_html}
+    <div style="margin-top:16px;"><a href="{site}" style="display:inline-block;padding:10px 22px;background:#6366f1;color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;">Go to portfolio</a></div>
+  </div>
+</body></html>"""
+    return HTMLResponse(content=html_body)
+
+
+@app.post("/reviews")
+def submit_review(request: ReviewRequest, http_req: Request) -> dict:
+    _rate_limit(http_req, "reviews", limit=5, window_seconds=600)
+    # Honeypot: silently accept but drop bot submissions.
+    if request.website.strip():
+        return {"ok": True, "stored": False}
+
+    name = (request.name or "").strip()
+    position = (request.position or "").strip()
+    text = (request.review_text or "").strip()
+    company = (request.company or "").strip()
+    linkedin = (request.linkedin_url or "").strip()
+
+    if not name or len(name) > 120:
+        raise HTTPException(status_code=422, detail="Please provide your name.")
+    if not position or len(position) > 120:
+        raise HTTPException(status_code=422, detail="Please provide your role / position.")
+    if len(text) < 10 or len(text) > 2000:
+        raise HTTPException(status_code=422, detail="Review must be between 10 and 2000 characters.")
+    if len(company) > 120:
+        raise HTTPException(status_code=422, detail="Company name is too long.")
+    if linkedin and not linkedin.lower().startswith(("http://", "https://")):
+        raise HTTPException(status_code=422, detail="LinkedIn URL must start with http(s)://")
+
+    rating = int(request.rating or 0)
+    if rating < 0 or rating > 5:
+        rating = 0
+
+    valid = _valid_skill_names()
+    endorsed = [s.strip() for s in (request.endorsed_skills or []) if s.strip()]
+    # Keep only endorsements that map to real page skills (case-insensitive).
+    if valid:
+        endorsed = [s for s in endorsed if s.lower() in valid][:12]
+    else:
+        endorsed = endorsed[:12]
+
+    creator = getattr(metadata_store, "create_review", None)
+    if not callable(creator):
+        raise HTTPException(status_code=503, detail="Reviews are not available.")
+    review = creator(
+        name=name, position=position, review_text=text, company=company,
+        rating=rating, linkedin_url=linkedin, endorsed_skills=endorsed,
+    )
+    delivery = email_service.send_review_notification(review)
+    return {"ok": True, "stored": True, "emailed": bool(delivery.get("sent"))}
+
+
+@app.get("/reviews")
+def list_public_reviews() -> dict:
+    lister = getattr(metadata_store, "list_approved_reviews", None)
+    reviews = lister(limit=100) if callable(lister) else []
+    # Strip nothing sensitive is stored, but never expose tokens (not selected anyway).
+    counts_getter = getattr(metadata_store, "get_skill_endorsement_counts", None)
+    endorsements = counts_getter() if callable(counts_getter) else {}
+    return {"reviews": reviews, "endorsements": endorsements}
+
+
+@app.get("/reviews/moderate")
+def moderate_review_confirm_page(token: str, action: str) -> HTMLResponse:
+    # GET only ever shows a confirmation page and never changes anything — a
+    # GET that approves/rejects on load can get auto-triggered by email
+    # clients' "safe link" prefetch scanners before a human ever clicks it.
+    if action not in {"approve", "reject"}:
+        return _moderation_page("⚠️ Unknown action", "Use the buttons in the notification email.")
+    getter = getattr(metadata_store, "get_review_by_token", None)
+    review = getter(token) if callable(getter) else None
+    if not review:
+        return _moderation_page("⚠️ Link expired", "This review could not be found. It may have already been handled.")
+    name = html.escape(str(review.get("name") or "This"))
+    return _moderation_page(
+        f"Confirm: {'publish' if action == 'approve' else 'reject'} review",
+        f"{name}'s review — click below to {'publish it' if action == 'approve' else 'reject and hide it'}.",
+        confirm_action=("/reviews/moderate", token, action),
+    )
+
+
+@app.post("/reviews/moderate")
+def moderate_review_confirm(token: str = Form(...), action: str = Form(...)) -> HTMLResponse:
+    getter = getattr(metadata_store, "get_review_by_token", None)
+    review = getter(token) if callable(getter) else None
+    if not review:
+        return _moderation_page("⚠️ Link expired", "This review could not be found. It may have already been handled.")
+    setter = getattr(metadata_store, "set_review_status", None)
+    if not callable(setter):
+        return _moderation_page("⚠️ Unavailable", "Reviews cannot be moderated right now.")
+    name = html.escape(str(review.get("name") or "This"))
+    if action == "approve":
+        setter(review["review_id"], "approved")
+        return _moderation_page("✅ Review published", f"{name}'s review is now live on your portfolio.")
+    if action == "reject":
+        setter(review["review_id"], "rejected")
+        return _moderation_page("🚫 Review rejected", f"{name}'s review has been hidden and will not appear.")
+    return _moderation_page("⚠️ Unknown action", "Use the buttons in the notification email.")
+
+
+# ── Guest book (3D room) ─────────────────────────────────────────────────────
+
+@app.post("/guestbook")
+def submit_guestbook(request: GuestbookRequest, http_req: Request) -> dict:
+    _rate_limit(http_req, "guestbook", limit=8, window_seconds=300)
+    if request.website.strip():
+        return {"ok": True, "stored": False}
+    name = (request.name or "").strip()
+    note = (request.note or "").strip()
+    if not name or len(name) > 80:
+        raise HTTPException(status_code=422, detail="Please provide your name.")
+    if len(note) < 2 or len(note) > 280:
+        raise HTTPException(status_code=422, detail="Note must be between 2 and 280 characters.")
+    creator = getattr(metadata_store, "create_guestbook_note", None)
+    if not callable(creator):
+        raise HTTPException(status_code=503, detail="Guest book is not available.")
+    entry = creator(name=name, note=note, color=(request.color or "").strip()[:16])
+    delivery = email_service.send_guestbook_notification(entry)
+    return {"ok": True, "stored": True, "emailed": bool(delivery.get("sent"))}
+
+
+@app.get("/guestbook")
+def list_public_guestbook() -> dict:
+    lister = getattr(metadata_store, "list_guestbook_notes", None)
+    notes = lister(status="approved", limit=200) if callable(lister) else []
+    return {"notes": notes}
+
+
+@app.get("/guestbook/moderate")
+def moderate_guestbook_confirm_page(token: str, action: str) -> HTMLResponse:
+    if action not in {"approve", "reject"}:
+        return _moderation_page("⚠️ Unknown action", "Use the buttons in the notification email.")
+    getter = getattr(metadata_store, "get_guestbook_note_by_token", None)
+    note = getter(token) if callable(getter) else None
+    if not note:
+        return _moderation_page("⚠️ Link expired", "This note could not be found. It may have already been handled.")
+    name = html.escape(str(note.get("name") or "This"))
+    return _moderation_page(
+        f"Confirm: {'publish' if action == 'approve' else 'reject'} note",
+        f"{name}'s guest book note — click below to {'pin it' if action == 'approve' else 'reject and hide it'}.",
+        confirm_action=("/guestbook/moderate", token, action),
+    )
+
+
+@app.post("/guestbook/moderate")
+def moderate_guestbook_confirm(token: str = Form(...), action: str = Form(...)) -> HTMLResponse:
+    getter = getattr(metadata_store, "get_guestbook_note_by_token", None)
+    note = getter(token) if callable(getter) else None
+    if not note:
+        return _moderation_page("⚠️ Link expired", "This note could not be found. It may have already been handled.")
+    setter = getattr(metadata_store, "set_guestbook_status", None)
+    if not callable(setter):
+        return _moderation_page("⚠️ Unavailable", "The guest book cannot be moderated right now.")
+    name = html.escape(str(note.get("name") or "This"))
+    if action == "approve":
+        setter(note["note_id"], "approved")
+        return _moderation_page("✅ Note published", f"{name}'s note is now pinned in your 3D room.")
+    if action == "reject":
+        setter(note["note_id"], "rejected")
+        return _moderation_page("🚫 Note rejected", f"{name}'s note has been hidden.")
+    return _moderation_page("⚠️ Unknown action", "Use the buttons in the notification email.")
+
+
+# ── Analytics events ─────────────────────────────────────────────────────────
+
+@app.post("/events")
+def record_event(request: EventRequest, http_req: Request) -> dict:
+    _rate_limit(http_req, "events", limit=60, window_seconds=60)
+    allowed = {"project_click", "resume_download", "chat_question", "recruiter_mode", "vcard_download", "review_start"}
+    event_type = (request.event_type or "").strip()
+    if event_type not in allowed:
+        return {"ok": False}
+    recorder = getattr(metadata_store, "record_event", None)
+    if callable(recorder):
+        try:
+            # Server-side cap — the client already truncates, but that's not
+            # something a caller hitting the API directly is bound by.
+            recorder(event_type, (request.target or "").strip()[:200])
+        except Exception:
+            return {"ok": False}
+    return {"ok": True}
 
 
 @app.get("/admin/verify")
@@ -322,6 +601,81 @@ def admin_delete_message(message_id: str, x_admin_token: str | None = Header(def
     if callable(deleter):
         deleter(message_id)
     return {"deleted": True}
+
+
+@app.get("/admin/reviews")
+def admin_list_reviews(x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    lister = getattr(metadata_store, "list_reviews", None)
+    return {"reviews": lister() if callable(lister) else []}
+
+
+@app.put("/admin/reviews/{review_id}/approve")
+def admin_approve_review(review_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    setter = getattr(metadata_store, "set_review_status", None)
+    if callable(setter):
+        setter(review_id, "approved")
+    return {"ok": True}
+
+
+@app.put("/admin/reviews/{review_id}/reject")
+def admin_reject_review(review_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    setter = getattr(metadata_store, "set_review_status", None)
+    if callable(setter):
+        setter(review_id, "rejected")
+    return {"ok": True}
+
+
+@app.delete("/admin/reviews/{review_id}")
+def admin_delete_review(review_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    deleter = getattr(metadata_store, "delete_review", None)
+    if callable(deleter):
+        deleter(review_id)
+    return {"deleted": True}
+
+
+@app.get("/admin/guestbook")
+def admin_list_guestbook(x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    lister = getattr(metadata_store, "list_guestbook_notes", None)
+    return {"notes": lister() if callable(lister) else []}
+
+
+@app.put("/admin/guestbook/{note_id}/approve")
+def admin_approve_guestbook(note_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    setter = getattr(metadata_store, "set_guestbook_status", None)
+    if callable(setter):
+        setter(note_id, "approved")
+    return {"ok": True}
+
+
+@app.put("/admin/guestbook/{note_id}/reject")
+def admin_reject_guestbook(note_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    setter = getattr(metadata_store, "set_guestbook_status", None)
+    if callable(setter):
+        setter(note_id, "rejected")
+    return {"ok": True}
+
+
+@app.delete("/admin/guestbook/{note_id}")
+def admin_delete_guestbook(note_id: str, x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    deleter = getattr(metadata_store, "delete_guestbook_note", None)
+    if callable(deleter):
+        deleter(note_id)
+    return {"deleted": True}
+
+
+@app.get("/admin/insights")
+def admin_insights(x_admin_token: str | None = Header(default=None)) -> dict:
+    _require_admin(x_admin_token)
+    getter = getattr(metadata_store, "get_event_summary", None)
+    return getter() if callable(getter) else {"totals": [], "top_targets": []}
 
 
 @app.post("/admin/ai/rewrite")
@@ -462,6 +816,7 @@ def get_project(project_id: str) -> dict:
 
 @app.post("/upload", response_model=UploadResponse)
 async def upload_document(
+    http_req: Request,
     file: UploadFile = File(...),
     logical_document_key: str = Form(...),
     source_label: str | None = Form(default=None),
@@ -473,9 +828,12 @@ async def upload_document(
     project_source_path: str | None = Form(default=None),
     x_admin_token: str | None = Header(default=None),
 ) -> UploadResponse:
+    # Always admin-gated — this used to only check the token when
+    # create_project was set, which meant anyone could upload a file and
+    # trigger (paid) embedding/ingestion with zero authentication.
+    _require_admin(x_admin_token)
+    _rate_limit(http_req, "upload", limit=10, window_seconds=300)
     try:
-        if create_project:
-            _require_admin(x_admin_token)
         suffix = Path(file.filename or "").suffix.lower()
         placeholder_path = f"pending/{logical_document_key}/{file.filename or 'upload'}"
         version_id = metadata_store.create_version(
@@ -532,7 +890,11 @@ async def upload_document(
 
 
 @app.post("/ingest", response_model=UploadResponse)
-def ingest_document(request: IngestRequest) -> UploadResponse:
+def ingest_document(request: IngestRequest, http_req: Request, x_admin_token: str | None = Header(default=None)) -> UploadResponse:
+    # Had no auth at all before — anyone who obtained/guessed a version_id
+    # (e.g. from the /upload response) could trigger re-ingestion on demand.
+    _require_admin(x_admin_token)
+    _rate_limit(http_req, "ingest", limit=10, window_seconds=300)
     try:
         chunk_count = ingestion_service.ingest(request.version_id)
         return UploadResponse(
@@ -546,7 +908,8 @@ def ingest_document(request: IngestRequest) -> UploadResponse:
 
 
 @app.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
+def chat(request: ChatRequest, http_req: Request) -> ChatResponse:
+    _rate_limit(http_req, "chat", limit=20, window_seconds=60)
     try:
         return chat_service.answer(
             request.message,
@@ -555,7 +918,10 @@ def chat(request: ChatRequest) -> ChatResponse:
             active_project_title=request.active_project_title,
         )
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # Don't leak internal exception text (file paths, provider errors, etc.)
+        # to an unauthenticated caller — this endpoint has no admin gate. Still
+        # chained via `from exc` so the real traceback reaches server logs.
+        raise HTTPException(status_code=502, detail="I'm having trouble answering right now — please try again shortly.") from exc
 
 
 @app.get("/documents", response_model=list[DocumentSummary])

@@ -12,8 +12,10 @@ export class AudioManager {
   private noiseBuf: AudioBuffer
   private chordTimer: number | null = null
   private melodyTimer: number | null = null
+  private beatTimer: number | null = null
   private musicStarted = false
   private chordIdx = 0
+  private beatStep = 0
   muted = false
 
   // soothing progression in C major (low, lush pads)
@@ -58,15 +60,64 @@ export class AudioManager {
 
   async resume() { if (this.ctx.state !== 'running') { try { await this.ctx.resume() } catch { /* ignore */ } } }
 
-  // ── ambient music ──
+  // ── music (a lofi beat now, not just an ambient chord wash — this is meant
+  //    to be "the record player's song", started/stopped on demand rather
+  //    than autoplaying the moment the page loads) ──
   startMusic() {
     if (this.musicStarted) return
     this.musicStarted = true
     const now = this.ctx.currentTime
-    this.music.gain.setValueAtTime(0, now)
-    this.music.gain.linearRampToValueAtTime(0.14, now + 4)
+    this.music.gain.cancelScheduledValues(now)
+    this.music.gain.setValueAtTime(this.music.gain.value, now)
+    this.music.gain.linearRampToValueAtTime(0.16, now + 1.4)
     this.scheduleChord()
     this.scheduleMelody()
+    this.scheduleBeat()
+  }
+
+  stopMusic() {
+    if (!this.musicStarted) return
+    this.musicStarted = false
+    const now = this.ctx.currentTime
+    this.music.gain.cancelScheduledValues(now)
+    this.music.gain.setValueAtTime(this.music.gain.value, now)
+    this.music.gain.linearRampToValueAtTime(0.0001, now + 0.8)
+    if (this.chordTimer) { clearTimeout(this.chordTimer); this.chordTimer = null }
+    if (this.melodyTimer) { clearTimeout(this.melodyTimer); this.melodyTimer = null }
+    if (this.beatTimer) { clearTimeout(this.beatTimer); this.beatTimer = null }
+  }
+
+  private scheduleBeat() {
+    const stepDur = 0.46 // ~130bpm eighth notes, a lofi head-nod tempo
+    const pattern = [1, 0, 0.6, 0, 1, 0.6, 0, 0.6] // 1 = kick+hat, 0.6 = hat only
+    const v = pattern[this.beatStep % pattern.length]
+    if (v >= 1) this.kick()
+    if (v > 0) this.hihat(v >= 1 ? 0.05 : 0.035)
+    this.beatStep++
+    this.beatTimer = window.setTimeout(() => this.scheduleBeat(), stepDur * 1000)
+  }
+
+  private kick() {
+    const now = this.ctx.currentTime
+    const o = this.ctx.createOscillator(); o.type = 'sine'
+    o.frequency.setValueAtTime(120, now)
+    o.frequency.exponentialRampToValueAtTime(42, now + 0.11)
+    const g = this.ctx.createGain()
+    g.gain.setValueAtTime(0.22, now)
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.22)
+    o.connect(g); g.connect(this.music)
+    o.start(now); o.stop(now + 0.24)
+  }
+
+  private hihat(vol: number) {
+    const now = this.ctx.currentTime
+    const src = this.ctx.createBufferSource(); src.buffer = this.noiseBuf
+    const filt = this.ctx.createBiquadFilter(); filt.type = 'highpass'; filt.frequency.value = 6500
+    const g = this.ctx.createGain()
+    g.gain.setValueAtTime(vol, now)
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.045)
+    src.connect(filt); filt.connect(g); g.connect(this.music)
+    src.start(now); src.stop(now + 0.05)
   }
 
   private scheduleChord() {
@@ -158,6 +209,7 @@ export class AudioManager {
   dispose() {
     if (this.chordTimer) clearTimeout(this.chordTimer)
     if (this.melodyTimer) clearTimeout(this.melodyTimer)
+    if (this.beatTimer) clearTimeout(this.beatTimer)
     try { this.ctx.close() } catch { /* ignore */ }
   }
 }

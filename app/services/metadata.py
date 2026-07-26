@@ -107,6 +107,48 @@ class SqliteMetadataStore:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS reviews (
+                    review_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    position TEXT NOT NULL,
+                    company TEXT NOT NULL DEFAULT '',
+                    review_text TEXT NOT NULL,
+                    rating INTEGER NOT NULL DEFAULT 0,
+                    linkedin_url TEXT NOT NULL DEFAULT '',
+                    endorsed_skills_json TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    approval_token TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    approved_at TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS guest_book (
+                    note_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    note TEXT NOT NULL,
+                    color TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    approval_token TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    approved_at TEXT
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS events (
+                    event_id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    target TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
                 CREATE INDEX IF NOT EXISTS idx_document_versions_key
                 ON document_versions (logical_document_key, upload_timestamp DESC)
                 """
@@ -555,6 +597,200 @@ class SqliteMetadataStore:
         with self.connect() as conn:
             conn.execute("DELETE FROM contact_messages WHERE message_id = ?", (message_id,))
 
+    # ── Reviews / testimonials ──────────────────────────────────────────────
+
+    @staticmethod
+    def _review_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
+        try:
+            skills = json.loads(row.get("endorsed_skills_json") or "[]")
+        except Exception:
+            skills = []
+        return {
+            "review_id": row["review_id"],
+            "name": row["name"],
+            "position": row["position"],
+            "company": row.get("company") or "",
+            "review_text": row["review_text"],
+            "rating": int(row.get("rating") or 0),
+            "linkedin_url": row.get("linkedin_url") or "",
+            "endorsed_skills": skills if isinstance(skills, list) else [],
+            "status": row.get("status") or "pending",
+            "created_at": row.get("created_at") or "",
+            "approved_at": row.get("approved_at") or None,
+        }
+
+    def create_review(
+        self,
+        *,
+        name: str,
+        position: str,
+        review_text: str,
+        company: str = "",
+        rating: int = 0,
+        linkedin_url: str = "",
+        endorsed_skills: list[str] | None = None,
+    ) -> dict[str, Any]:
+        review_id = str(uuid.uuid4())
+        approval_token = uuid.uuid4().hex
+        created_at = utc_now_iso()
+        skills = [s.strip() for s in (endorsed_skills or []) if s.strip()]
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO reviews (
+                    review_id, name, position, company, review_text, rating,
+                    linkedin_url, endorsed_skills_json, status, approval_token, created_at, approved_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL)
+                """,
+                (
+                    review_id, name.strip(), position.strip(), company.strip(), review_text.strip(),
+                    int(rating or 0), linkedin_url.strip(), json.dumps(skills), approval_token, created_at,
+                ),
+            )
+        return {
+            "review_id": review_id, "approval_token": approval_token, "name": name.strip(),
+            "position": position.strip(), "company": company.strip(), "review_text": review_text.strip(),
+            "rating": int(rating or 0), "linkedin_url": linkedin_url.strip(),
+            "endorsed_skills": skills, "status": "pending", "created_at": created_at,
+        }
+
+    def list_reviews(self, status: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            if status:
+                rows = conn.execute(
+                    """
+                    SELECT review_id, name, position, company, review_text, rating,
+                           linkedin_url, endorsed_skills_json, status, created_at, approved_at
+                    FROM reviews WHERE status = ? ORDER BY created_at DESC LIMIT ?
+                    """,
+                    (status, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT review_id, name, position, company, review_text, rating,
+                           linkedin_url, endorsed_skills_json, status, created_at, approved_at
+                    FROM reviews ORDER BY created_at DESC LIMIT ?
+                    """,
+                    (limit,),
+                ).fetchall()
+        return [self._review_row_to_payload(dict(row)) for row in rows]
+
+    def list_approved_reviews(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self.list_reviews(status="approved", limit=limit)
+
+    def get_review_by_token(self, approval_token: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                """
+                SELECT review_id, name, position, company, review_text, rating,
+                       linkedin_url, endorsed_skills_json, status, created_at, approved_at
+                FROM reviews WHERE approval_token = ?
+                """,
+                (approval_token,),
+            ).fetchone()
+        return self._review_row_to_payload(dict(row)) if row else None
+
+    def set_review_status(self, review_id: str, status: str) -> None:
+        approved_at = utc_now_iso() if status == "approved" else None
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE reviews SET status = ?, approved_at = ? WHERE review_id = ?",
+                (status, approved_at, review_id),
+            )
+
+    def delete_review(self, review_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM reviews WHERE review_id = ?", (review_id,))
+
+    def get_skill_endorsement_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for review in self.list_approved_reviews(limit=500):
+            for skill in review.get("endorsed_skills") or []:
+                key = str(skill).strip()
+                if key:
+                    counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    # ── Guest book ──────────────────────────────────────────────────────────
+
+    def create_guestbook_note(self, *, name: str, note: str, color: str = "") -> dict[str, Any]:
+        note_id = str(uuid.uuid4())
+        approval_token = uuid.uuid4().hex
+        created_at = utc_now_iso()
+        with self.connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO guest_book (note_id, name, note, color, status, approval_token, created_at, approved_at)
+                VALUES (?, ?, ?, ?, 'pending', ?, ?, NULL)
+                """,
+                (note_id, name.strip(), note.strip(), color.strip(), approval_token, created_at),
+            )
+        return {
+            "note_id": note_id, "approval_token": approval_token, "name": name.strip(),
+            "note": note.strip(), "color": color.strip(), "status": "pending", "created_at": created_at,
+        }
+
+    def list_guestbook_notes(self, status: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        with self.connect() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT note_id, name, note, color, status, created_at, approved_at FROM guest_book WHERE status = ? ORDER BY created_at DESC LIMIT ?",
+                    (status, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT note_id, name, note, color, status, created_at, approved_at FROM guest_book ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_guestbook_note_by_token(self, approval_token: str) -> dict[str, Any] | None:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT note_id, name, note, color, status, created_at, approved_at FROM guest_book WHERE approval_token = ?",
+                (approval_token,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def set_guestbook_status(self, note_id: str, status: str) -> None:
+        approved_at = utc_now_iso() if status == "approved" else None
+        with self.connect() as conn:
+            conn.execute(
+                "UPDATE guest_book SET status = ?, approved_at = ? WHERE note_id = ?",
+                (status, approved_at, note_id),
+            )
+
+    def delete_guestbook_note(self, note_id: str) -> None:
+        with self.connect() as conn:
+            conn.execute("DELETE FROM guest_book WHERE note_id = ?", (note_id,))
+
+    # ── Analytics events ────────────────────────────────────────────────────
+
+    def record_event(self, event_type: str, target: str = "") -> None:
+        with self.connect() as conn:
+            conn.execute(
+                "INSERT INTO events (event_id, event_type, target, created_at) VALUES (?, ?, ?, ?)",
+                (str(uuid.uuid4()), event_type.strip(), target.strip()[:300], utc_now_iso()),
+            )
+
+    def get_event_summary(self, limit_per_group: int = 20) -> dict[str, Any]:
+        with self.connect() as conn:
+            totals = [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT event_type, COUNT(*) AS n FROM events GROUP BY event_type ORDER BY n DESC"
+                ).fetchall()
+            ]
+            top_targets = [
+                dict(row)
+                for row in conn.execute(
+                    "SELECT event_type, target, COUNT(*) AS n FROM events WHERE target <> '' GROUP BY event_type, target ORDER BY n DESC LIMIT ?",
+                    (limit_per_group,),
+                ).fetchall()
+            ]
+        return {"totals": totals, "top_targets": top_targets}
+
 
 class MongoMetadataStore:
     def __init__(self, mongo_uri: str, db_name: str) -> None:
@@ -906,6 +1142,150 @@ class MongoMetadataStore:
 
     def delete_contact_message(self, message_id: str) -> None:
         self._db["contact_messages"].delete_one({"_id": message_id})
+
+    # ── Reviews / testimonials ──────────────────────────────────────────────
+
+    @staticmethod
+    def _review_doc_to_payload(row: dict[str, Any]) -> dict[str, Any]:
+        skills = row.get("endorsed_skills") or []
+        return {
+            "review_id": str(row.get("_id") or ""),
+            "name": str(row.get("name") or ""),
+            "position": str(row.get("position") or ""),
+            "company": str(row.get("company") or ""),
+            "review_text": str(row.get("review_text") or ""),
+            "rating": int(row.get("rating") or 0),
+            "linkedin_url": str(row.get("linkedin_url") or ""),
+            "endorsed_skills": list(skills) if isinstance(skills, list) else [],
+            "status": str(row.get("status") or "pending"),
+            "created_at": str(row.get("created_at") or ""),
+            "approved_at": row.get("approved_at") or None,
+        }
+
+    def create_review(
+        self,
+        *,
+        name: str,
+        position: str,
+        review_text: str,
+        company: str = "",
+        rating: int = 0,
+        linkedin_url: str = "",
+        endorsed_skills: list[str] | None = None,
+    ) -> dict[str, Any]:
+        review_id = str(uuid.uuid4())
+        approval_token = uuid.uuid4().hex
+        created_at = utc_now_iso()
+        skills = [s.strip() for s in (endorsed_skills or []) if s.strip()]
+        doc = {
+            "_id": review_id, "name": name.strip(), "position": position.strip(),
+            "company": company.strip(), "review_text": review_text.strip(), "rating": int(rating or 0),
+            "linkedin_url": linkedin_url.strip(), "endorsed_skills": skills, "status": "pending",
+            "approval_token": approval_token, "created_at": created_at, "approved_at": None,
+        }
+        self._db["reviews"].insert_one(dict(doc))
+        return {**self._review_doc_to_payload(doc), "approval_token": approval_token}
+
+    def list_reviews(self, status: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        query_filter = {"status": status} if status else {}
+        rows = list(self._db["reviews"].find(query_filter).sort([("created_at", -1)]).limit(limit))
+        return [self._review_doc_to_payload(row) for row in rows]
+
+    def list_approved_reviews(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self.list_reviews(status="approved", limit=limit)
+
+    def get_review_by_token(self, approval_token: str) -> dict[str, Any] | None:
+        row = self._db["reviews"].find_one({"approval_token": approval_token})
+        return self._review_doc_to_payload(row) if row else None
+
+    def set_review_status(self, review_id: str, status: str) -> None:
+        approved_at = utc_now_iso() if status == "approved" else None
+        self._db["reviews"].update_one({"_id": review_id}, {"$set": {"status": status, "approved_at": approved_at}})
+
+    def delete_review(self, review_id: str) -> None:
+        self._db["reviews"].delete_one({"_id": review_id})
+
+    def get_skill_endorsement_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for review in self.list_approved_reviews(limit=500):
+            for skill in review.get("endorsed_skills") or []:
+                key = str(skill).strip()
+                if key:
+                    counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    # ── Guest book ──────────────────────────────────────────────────────────
+
+    def create_guestbook_note(self, *, name: str, note: str, color: str = "") -> dict[str, Any]:
+        note_id = str(uuid.uuid4())
+        approval_token = uuid.uuid4().hex
+        created_at = utc_now_iso()
+        doc = {
+            "_id": note_id, "name": name.strip(), "note": note.strip(), "color": color.strip(),
+            "status": "pending", "approval_token": approval_token, "created_at": created_at, "approved_at": None,
+        }
+        self._db["guest_book"].insert_one(dict(doc))
+        return {
+            "note_id": note_id, "approval_token": approval_token, "name": name.strip(),
+            "note": note.strip(), "color": color.strip(), "status": "pending", "created_at": created_at,
+        }
+
+    @staticmethod
+    def _note_doc_to_payload(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "note_id": str(row.get("_id") or ""),
+            "name": str(row.get("name") or ""),
+            "note": str(row.get("note") or ""),
+            "color": str(row.get("color") or ""),
+            "status": str(row.get("status") or "pending"),
+            "created_at": str(row.get("created_at") or ""),
+            "approved_at": row.get("approved_at") or None,
+        }
+
+    def list_guestbook_notes(self, status: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        query_filter = {"status": status} if status else {}
+        rows = list(self._db["guest_book"].find(query_filter).sort([("created_at", -1)]).limit(limit))
+        return [self._note_doc_to_payload(row) for row in rows]
+
+    def get_guestbook_note_by_token(self, approval_token: str) -> dict[str, Any] | None:
+        row = self._db["guest_book"].find_one({"approval_token": approval_token})
+        return self._note_doc_to_payload(row) if row else None
+
+    def set_guestbook_status(self, note_id: str, status: str) -> None:
+        approved_at = utc_now_iso() if status == "approved" else None
+        self._db["guest_book"].update_one({"_id": note_id}, {"$set": {"status": status, "approved_at": approved_at}})
+
+    def delete_guestbook_note(self, note_id: str) -> None:
+        self._db["guest_book"].delete_one({"_id": note_id})
+
+    # ── Analytics events ────────────────────────────────────────────────────
+
+    def record_event(self, event_type: str, target: str = "") -> None:
+        self._db["events"].insert_one({
+            "_id": str(uuid.uuid4()), "event_type": event_type.strip(),
+            "target": target.strip()[:300], "created_at": utc_now_iso(),
+        })
+
+    def get_event_summary(self, limit_per_group: int = 20) -> dict[str, Any]:
+        totals = list(self._db["events"].aggregate([
+            {"$group": {"_id": "$event_type", "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}},
+        ]))
+        top_targets = list(self._db["events"].aggregate([
+            {"$match": {"target": {"$ne": ""}}},
+            {"$group": {"_id": {"event_type": "$event_type", "target": "$target"}, "n": {"$sum": 1}}},
+            {"$sort": {"n": -1}},
+            {"$limit": limit_per_group},
+        ]))
+        return {
+            "totals": [{"event_type": str(r.get("_id") or ""), "n": int(r.get("n") or 0)} for r in totals],
+            "top_targets": [
+                {"event_type": str((r.get("_id") or {}).get("event_type") or ""),
+                 "target": str((r.get("_id") or {}).get("target") or ""),
+                 "n": int(r.get("n") or 0)}
+                for r in top_targets
+            ],
+        }
 
     # ── Portfolio projects ──────────────────────────────────────────────────
 

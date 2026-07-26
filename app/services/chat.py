@@ -521,6 +521,33 @@ class ChatService:
         rest = f" Previously: {'; '.join(parts[1:])}." if len(parts) > 1 else ""
         return f"Raj's current role is {current}.{rest}"
 
+    def _build_reviews_context(self, limit: int = 5) -> str:
+        """Return a short summary of the most recent approved reviews so the
+        assistant can quote genuine testimonials (e.g. 'a former manager said…')
+        when asked about Raj's strengths or what others think of him. Approved
+        reviews only — never surfaces pending/rejected content."""
+        try:
+            reviews = metadata_store.list_approved_reviews(limit=limit)
+        except Exception:
+            return ""
+        if not reviews:
+            return ""
+        lines = ["What people who worked with Raj have said (approved testimonials):"]
+        for review in reviews:
+            name = str(review.get("name") or "Someone").strip()
+            position = str(review.get("position") or "").strip()
+            company = str(review.get("company") or "").strip()
+            text = " ".join(str(review.get("review_text") or "").split())
+            if len(text) > 320:
+                text = text[:317].rstrip() + "…"
+            attribution = name
+            if position:
+                attribution += f", {position}"
+            if company:
+                attribution += f" at {company}"
+            lines.append(f'- {attribution}: "{text}"')
+        return "\n".join(lines)
+
     def _build_portfolio_index(self) -> str:
         """Return a bullet list of Raj's projects for the system prompt.
         The 4 known projects are ALWAYS included regardless of indexing status,
@@ -632,6 +659,9 @@ class ChatService:
             avail_ctx += f"Current location: {current_loc}. "
             if desired_loc:
                 avail_ctx += f"Desired locations for work: {', '.join(desired_loc)}."
+            reviews_ctx = self._build_reviews_context()
+            if reviews_ctx:
+                avail_ctx += "\n\n" + reviews_ctx
             prompt = PROMPT_TEMPLATE.format(
                 context="(No documents currently indexed — answer from the portfolio index and availability context only.)",
                 question=normalized_message,
@@ -697,6 +727,9 @@ class ChatService:
         avail_ctx += f"Current location: {current_loc}. "
         if desired_loc:
             avail_ctx += f"Desired locations for work: {', '.join(desired_loc)}."
+        reviews_ctx = self._build_reviews_context()
+        if reviews_ctx:
+            avail_ctx += "\n\n" + reviews_ctx
 
         prompt = PROMPT_TEMPLATE.format(
             context='\n\n'.join(context_parts),

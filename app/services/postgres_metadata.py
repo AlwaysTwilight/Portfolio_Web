@@ -75,6 +75,48 @@ class PostgresMetadataStore:
                 )
                 conn.execute(
                     """
+                    CREATE TABLE IF NOT EXISTS reviews (
+                        review_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        position TEXT NOT NULL,
+                        company TEXT NOT NULL DEFAULT '',
+                        review_text TEXT NOT NULL,
+                        rating INTEGER NOT NULL DEFAULT 0,
+                        linkedin_url TEXT NOT NULL DEFAULT '',
+                        endorsed_skills_json TEXT NOT NULL DEFAULT '[]',
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        approval_token TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        approved_at TEXT
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS guest_book (
+                        note_id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        note TEXT NOT NULL,
+                        color TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        approval_token TEXT NOT NULL,
+                        created_at TEXT NOT NULL,
+                        approved_at TEXT
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS events (
+                        event_id TEXT PRIMARY KEY,
+                        event_type TEXT NOT NULL,
+                        target TEXT NOT NULL DEFAULT '',
+                        created_at TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    """
                     CREATE INDEX IF NOT EXISTS idx_document_versions_key
                     ON document_versions (logical_document_key, upload_timestamp DESC)
                     """
@@ -83,6 +125,18 @@ class PostgresMetadataStore:
                     """
                     CREATE INDEX IF NOT EXISTS idx_contact_messages_created
                     ON contact_messages (created_at DESC)
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_reviews_status_created
+                    ON reviews (status, created_at DESC)
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_events_type_created
+                    ON events (event_type, created_at DESC)
                     """
                 )
                 defaults = {
@@ -494,3 +548,209 @@ class PostgresMetadataStore:
     def delete_contact_message(self, message_id: str) -> None:
         with connection() as conn:
             conn.execute("DELETE FROM contact_messages WHERE message_id = %s", (message_id,))
+
+    # ── Reviews / testimonials ──────────────────────────────────────────────
+
+    @staticmethod
+    def _review_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
+        try:
+            skills = json.loads(row.get("endorsed_skills_json") or "[]")
+        except Exception:
+            skills = []
+        return {
+            "review_id": row["review_id"],
+            "name": row["name"],
+            "position": row["position"],
+            "company": row.get("company") or "",
+            "review_text": row["review_text"],
+            "rating": int(row.get("rating") or 0),
+            "linkedin_url": row.get("linkedin_url") or "",
+            "endorsed_skills": skills if isinstance(skills, list) else [],
+            "status": row.get("status") or "pending",
+            "created_at": row.get("created_at") or "",
+            "approved_at": row.get("approved_at") or None,
+        }
+
+    def create_review(
+        self,
+        *,
+        name: str,
+        position: str,
+        review_text: str,
+        company: str = "",
+        rating: int = 0,
+        linkedin_url: str = "",
+        endorsed_skills: list[str] | None = None,
+    ) -> dict[str, Any]:
+        review_id = str(uuid.uuid4())
+        approval_token = uuid.uuid4().hex
+        created_at = utc_now_iso()
+        with connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO reviews (
+                    review_id, name, position, company, review_text, rating,
+                    linkedin_url, endorsed_skills_json, status, approval_token, created_at, approved_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, 'pending', %s, %s, NULL)
+                """,
+                (
+                    review_id,
+                    name.strip(),
+                    position.strip(),
+                    company.strip(),
+                    review_text.strip(),
+                    int(rating or 0),
+                    linkedin_url.strip(),
+                    json.dumps([s.strip() for s in (endorsed_skills or []) if s.strip()]),
+                    approval_token,
+                    created_at,
+                ),
+            )
+        return {
+            "review_id": review_id,
+            "approval_token": approval_token,
+            "name": name.strip(),
+            "position": position.strip(),
+            "company": company.strip(),
+            "review_text": review_text.strip(),
+            "rating": int(rating or 0),
+            "linkedin_url": linkedin_url.strip(),
+            "endorsed_skills": [s.strip() for s in (endorsed_skills or []) if s.strip()],
+            "status": "pending",
+            "created_at": created_at,
+        }
+
+    def list_reviews(self, status: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        where = "WHERE status = %s" if status else ""
+        params: tuple = (status, limit) if status else (limit,)
+        with cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT review_id, name, position, company, review_text, rating,
+                       linkedin_url, endorsed_skills_json, status, created_at, approved_at
+                FROM reviews
+                {where}
+                ORDER BY created_at DESC
+                LIMIT %s
+                """,
+                params,
+            )
+            return [self._review_row_to_payload(dict(row)) for row in cur.fetchall()]
+
+    def list_approved_reviews(self, limit: int = 100) -> list[dict[str, Any]]:
+        return self.list_reviews(status="approved", limit=limit)
+
+    def get_review_by_token(self, approval_token: str) -> dict[str, Any] | None:
+        with cursor() as cur:
+            cur.execute(
+                """
+                SELECT review_id, name, position, company, review_text, rating,
+                       linkedin_url, endorsed_skills_json, status, created_at, approved_at
+                FROM reviews WHERE approval_token = %s
+                """,
+                (approval_token,),
+            )
+            row = cur.fetchone()
+        return self._review_row_to_payload(dict(row)) if row else None
+
+    def set_review_status(self, review_id: str, status: str) -> None:
+        approved_at = utc_now_iso() if status == "approved" else None
+        with connection() as conn:
+            conn.execute(
+                "UPDATE reviews SET status = %s, approved_at = %s WHERE review_id = %s",
+                (status, approved_at, review_id),
+            )
+
+    def delete_review(self, review_id: str) -> None:
+        with connection() as conn:
+            conn.execute("DELETE FROM reviews WHERE review_id = %s", (review_id,))
+
+    def get_skill_endorsement_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for review in self.list_approved_reviews(limit=500):
+            for skill in review.get("endorsed_skills") or []:
+                key = str(skill).strip()
+                if key:
+                    counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    # ── Guest book ──────────────────────────────────────────────────────────
+
+    def create_guestbook_note(self, *, name: str, note: str, color: str = "") -> dict[str, Any]:
+        note_id = str(uuid.uuid4())
+        approval_token = uuid.uuid4().hex
+        created_at = utc_now_iso()
+        with connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO guest_book (note_id, name, note, color, status, approval_token, created_at, approved_at)
+                VALUES (%s, %s, %s, %s, 'pending', %s, %s, NULL)
+                """,
+                (note_id, name.strip(), note.strip(), color.strip(), approval_token, created_at),
+            )
+        return {
+            "note_id": note_id,
+            "approval_token": approval_token,
+            "name": name.strip(),
+            "note": note.strip(),
+            "color": color.strip(),
+            "status": "pending",
+            "created_at": created_at,
+        }
+
+    def list_guestbook_notes(self, status: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        where = "WHERE status = %s" if status else ""
+        params: tuple = (status, limit) if status else (limit,)
+        with cursor() as cur:
+            cur.execute(
+                f"""
+                SELECT note_id, name, note, color, status, created_at, approved_at
+                FROM guest_book {where} ORDER BY created_at DESC LIMIT %s
+                """,
+                params,
+            )
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_guestbook_note_by_token(self, approval_token: str) -> dict[str, Any] | None:
+        with cursor() as cur:
+            cur.execute(
+                "SELECT note_id, name, note, color, status, created_at, approved_at FROM guest_book WHERE approval_token = %s",
+                (approval_token,),
+            )
+            row = cur.fetchone()
+        return dict(row) if row else None
+
+    def set_guestbook_status(self, note_id: str, status: str) -> None:
+        approved_at = utc_now_iso() if status == "approved" else None
+        with connection() as conn:
+            conn.execute(
+                "UPDATE guest_book SET status = %s, approved_at = %s WHERE note_id = %s",
+                (status, approved_at, note_id),
+            )
+
+    def delete_guestbook_note(self, note_id: str) -> None:
+        with connection() as conn:
+            conn.execute("DELETE FROM guest_book WHERE note_id = %s", (note_id,))
+
+    # ── Analytics events ────────────────────────────────────────────────────
+
+    def record_event(self, event_type: str, target: str = "") -> None:
+        with connection() as conn:
+            conn.execute(
+                "INSERT INTO events (event_id, event_type, target, created_at) VALUES (%s, %s, %s, %s)",
+                (str(uuid.uuid4()), event_type.strip(), target.strip()[:300], utc_now_iso()),
+            )
+
+    def get_event_summary(self, limit_per_group: int = 20) -> dict[str, Any]:
+        with cursor() as cur:
+            cur.execute("SELECT event_type, COUNT(*) AS n FROM events GROUP BY event_type ORDER BY n DESC")
+            totals = [dict(row) for row in cur.fetchall()]
+            cur.execute(
+                """
+                SELECT event_type, target, COUNT(*) AS n FROM events
+                WHERE target <> '' GROUP BY event_type, target ORDER BY n DESC LIMIT %s
+                """,
+                (limit_per_group,),
+            )
+            top_targets = [dict(row) for row in cur.fetchall()]
+        return {"totals": totals, "top_targets": top_targets}

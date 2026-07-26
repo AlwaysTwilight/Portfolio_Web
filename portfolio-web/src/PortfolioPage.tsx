@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback, lazy, Suspense } from 'react'
+import gsap from 'gsap'
 import { FALLBACK_PORTFOLIO, isValidProject } from './usePortfolio'
 import type {
   ExperienceItem,
@@ -8,6 +9,11 @@ import type {
   SectionConfig,
   PortfolioPayload,
 } from './usePortfolio'
+import TerminalWindow from './TerminalWindow'
+import ReviewsCarousel from './ReviewsCarousel'
+import { fetchPublicReviews, trackEvent } from './reviews'
+import type { Review } from './reviews'
+import { injectReviewSchema } from './seo'
 
 const Terminal3D = lazy(() => import('./Terminal3D'))
 
@@ -258,7 +264,6 @@ export default function PortfolioPage() {
   const [isLive, setIsLive] = useState(false)
   const [activeProject, setActiveProject] = useState<ProjectCard | null>(null)
   const [chatOpen, setChatOpen] = useState(false)
-  const [chatInput, setChatInput] = useState('')
   const [chatting, setChatting] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([
     { role: 'assistant', content: "Hi! Ask me anything about Raj's projects, experience, or skills — I'm grounded in real documents." }
@@ -270,9 +275,6 @@ export default function PortfolioPage() {
   const [terminalMode, setTerminalMode] = useState(
     () => typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('room')
   )
-  const chatEndRef = useRef<HTMLDivElement>(null)
-  const chatInputRef = useRef<HTMLInputElement>(null)
-
   // Contact form state
   const [contactName, setContactName] = useState('')
   const [contactEmail, setContactEmail] = useState('')
@@ -285,6 +287,32 @@ export default function PortfolioPage() {
   const contactFlowRef = useRef<ContactFlow>(EMPTY_CONTACT_FLOW)
   useEffect(() => { contactFlowRef.current = contactFlow }, [contactFlow])
 
+  // Reviews / testimonials
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [endorsements, setEndorsements] = useState<Record<string, number>>({})
+  // Skips re-injecting the JSON-LD block when the review set hasn't actually
+  // changed (only matters once this effect is ever polled, but cheap either way).
+  const reviewSchemaKeyRef = useRef('')
+  useEffect(() => {
+    let alive = true
+    void (async () => {
+      const data = await fetchPublicReviews()
+      if (!alive) return
+      setReviews(data.reviews)
+      setEndorsements(data.endorsements)
+      const key = data.reviews.map(r => `${r.review_id}:${r.rating}`).join(',')
+      if (key !== reviewSchemaKeyRef.current) {
+        reviewSchemaKeyRef.current = key
+        injectReviewSchema(data.reviews)
+      }
+    })()
+    return () => { alive = false }
+  }, [])
+
+  // Chat-to-review handoff: after a couple of good exchanges, gently invite a review.
+  const [handoffOffered, setHandoffOffered] = useState(false)
+  const userTurnsRef = useRef(0)
+
   const name = portfolio?.profile.name ?? 'Raj Sahoo'
   const headline = portfolio?.profile.headline ?? 'AI/ML Software Developer'
   const { displayed: typedName } = useTypewriter(name, 55)
@@ -292,6 +320,23 @@ export default function PortfolioPage() {
     typedName.length === name.length ? headline : '',
     38
   )
+
+  // A brief chromatic-aberration glitch flourish on the hero name once the
+  // typewriter finishes. Fires once per mount; respects prefers-reduced-motion.
+  const heroNameRef = useRef<HTMLHeadingElement>(null)
+  const heroGlitchFired = useRef(false)
+  useEffect(() => {
+    if (typedName.length !== name.length || heroGlitchFired.current) return
+    heroGlitchFired.current = true
+    const el = heroNameRef.current
+    if (!el) return
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return
+    gsap.fromTo(
+      el,
+      { textShadow: '-3px 0 0 rgba(239,68,68,0.7), 3px 0 0 rgba(34,211,238,0.7)', filter: 'blur(2px)' },
+      { textShadow: '0 0 0 rgba(0,0,0,0)', filter: 'blur(0px)', duration: 0.5, ease: 'power2.out', delay: 0.08 }
+    )
+  }, [typedName, name])
 
   // ── Theme ──
   useEffect(() => {
@@ -331,9 +376,6 @@ export default function PortfolioPage() {
     return () => { bc.close(); clearInterval(t) }
   }, [])
 
-  // ── Auto-scroll chat ──
-  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, chatting])
-
   const scrollTo = useCallback((id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [])
@@ -354,11 +396,12 @@ export default function PortfolioPage() {
   }
 
   // ── Chat ──
-  async function send() {
-    const msg = chatInput.trim()
+  async function send(text: string) {
+    const msg = text.trim()
     if (!msg || chatting) return
     const next: ChatMessage[] = [...messages, { role: 'user', content: msg }]
-    setMessages(next); setChatInput('')
+    setMessages(next)
+    trackEvent('chat_question', msg.slice(0, 120))
 
     // 1) If a contact-capture flow is in progress, handle it locally (no LLM call).
     const flow = contactFlowRef.current
@@ -393,7 +436,17 @@ export default function PortfolioPage() {
           active_project_title: activeProject?.title ?? null
         })
       })
-      setMessages([...next, { role: 'assistant', content: r.answer }])
+      userTurnsRef.current += 1
+      const finalMsgs: ChatMessage[] = [...next, { role: 'assistant', content: r.answer }]
+      // After the user has had a couple of real exchanges, offer the review handoff once.
+      if (!handoffOffered && userTurnsRef.current >= 2) {
+        finalMsgs.push({
+          role: 'assistant',
+          content: "By the way — if you've worked with Raj or found this helpful, he'd really appreciate a short review. [Leave a quick review →](/review?from=chat)",
+        })
+        setHandoffOffered(true)
+      }
+      setMessages(finalMsgs)
       setIsLive(true)
     } catch (err) {
       setMessages([...next, {
@@ -478,6 +531,32 @@ export default function PortfolioPage() {
     })
     return res
   }, [])
+
+  // Build + download a vCard so recruiters can save contact details in one tap.
+  const downloadVCard = useCallback(() => {
+    const email = socialLinks.email || 'rs1092002@gmail.com'
+    const displayName = name || 'Raj Sahoo'
+    const lines = [
+      'BEGIN:VCARD',
+      'VERSION:3.0',
+      `FN:${displayName}`,
+      `TITLE:${headline}`,
+      `EMAIL;TYPE=INTERNET:${email}`,
+      socialLinks.linkedin ? `URL;TYPE=LinkedIn:${socialLinks.linkedin}` : '',
+      socialLinks.github ? `URL;TYPE=GitHub:${socialLinks.github}` : '',
+      'END:VCARD',
+    ].filter(Boolean)
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/vcard' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${displayName.replace(/\s+/g, '_')}.vcf`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+    trackEvent('vcard_download')
+  }, [socialLinks, name, headline])
 
   async function handleContactSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -571,6 +650,11 @@ export default function PortfolioPage() {
                 {id}
               </button>
             ))}
+            {reviews.length > 0 && (
+              <button className="nav-pill" onClick={() => scrollTo('testimonials')} type="button">
+                testimonials
+              </button>
+            )}
             <button className="nav-pill" onClick={() => scrollTo('resume')} type="button">
               résumé
             </button>
@@ -635,7 +719,7 @@ export default function PortfolioPage() {
                 </span>
               </div>
 
-              <h1 className="hero-name">
+              <h1 className="hero-name" ref={heroNameRef}>
                 {typedName}
                 <span className="cursor" aria-hidden>▌</span>
               </h1>
@@ -678,7 +762,7 @@ export default function PortfolioPage() {
               <div className="hero-actions">
                 <button
                   className="btn-primary"
-                  onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 100) }}
+                  onClick={() => setChatOpen(true)}
                   type="button"
                 >
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
@@ -744,7 +828,7 @@ export default function PortfolioPage() {
                 <TiltCard
                   key={project.id}
                   className={`project-card ${i === 0 ? 'project-card--featured' : ''}`}
-                  onClick={() => setActiveProject(project)}
+                  onClick={() => { setActiveProject(project); trackEvent('project_click', project.title) }}
                 >
                   <div className="project-card-inner">
                     <div className="project-top">
@@ -844,6 +928,35 @@ export default function PortfolioPage() {
         )}
 
         {/* ══════════════════════════════════════════
+            TESTIMONIALS / REVIEWS
+        ══════════════════════════════════════════ */}
+        {reviews.length > 0 ? (
+          <RevealSection id="testimonials" className="section rv-section">
+            <SectionLabel index="3.5" title="Testimonials" sub={`${reviews.length} verified voice${reviews.length === 1 ? '' : 's'}`} />
+            <ReviewsCarousel reviews={reviews} endorsements={endorsements} />
+            <div className="rv-cta-row">
+              <a className="btn-ghost rv-leave-btn" href="/review" onClick={() => trackEvent('review_start', 'portfolio')}>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+                </svg>
+                Worked with me? Leave a review
+              </a>
+            </div>
+          </RevealSection>
+        ) : (
+          <RevealSection id="testimonials" className="section rv-section rv-section--empty">
+            <div className="rv-cta-row">
+              <a className="btn-ghost rv-leave-btn" href="/review" onClick={() => trackEvent('review_start', 'portfolio')}>
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z" />
+                </svg>
+                Worked with me? Leave a review
+              </a>
+            </div>
+          </RevealSection>
+        )}
+
+        {/* ══════════════════════════════════════════
             RÉSUMÉ DOWNLOAD
         ══════════════════════════════════════════ */}
         <RevealSection id="resume" className="section">
@@ -862,18 +975,27 @@ export default function PortfolioPage() {
                 </p>
               </div>
             </div>
-            <a
-              className="btn-primary resume-btn"
-              href={RESUME_URL}
-              download="Raj_Sahoo_Resume.pdf"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
-              </svg>
-              Download PDF
-            </a>
+            <div className="resume-actions">
+              <a
+                className="btn-primary resume-btn"
+                href={RESUME_URL}
+                download="Raj_Sahoo_Resume.pdf"
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={() => trackEvent('resume_download')}
+              >
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/>
+                </svg>
+                Download PDF
+              </a>
+              <button className="btn-ghost resume-vcard-btn" onClick={downloadVCard} type="button">
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM19 8v6M22 11h-6" />
+                </svg>
+                Save contact
+              </button>
+            </div>
           </div>
         </RevealSection>
 
@@ -1011,7 +1133,7 @@ export default function PortfolioPage() {
         {!chatOpen && (
           <button
             className="chat-fab"
-            onClick={() => { setChatOpen(true); setTimeout(() => chatInputRef.current?.focus(), 80) }}
+            onClick={() => setChatOpen(true)}
             aria-label="Open portfolio assistant"
             type="button"
           >
@@ -1022,92 +1144,30 @@ export default function PortfolioPage() {
           </button>
         )}
 
-        <div className={`chat-panel ${chatOpen ? 'chat-panel--open' : ''}`} role="complementary">
-          <div className="chat-header">
-            <div className="chat-header-info">
-              <span className="chat-avatar-icon" aria-hidden>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="11" width="18" height="10" rx="2"/><path d="M9 11V7a3 3 0 0 1 6 0v4M9 15h.01M15 15h.01"/>
-                </svg>
-              </span>
-              <div>
-                <p className="chat-title">AI Assistant</p>
-                <p className="chat-subtitle">
-                  {isLive
-                    ? 'Grounded in real documents'
-                    : 'Warming up — grounded in real documents'}
-                </p>
-              </div>
-            </div>
-            <button
-              className="chat-close"
-              onClick={() => setChatOpen(false)}
-              aria-label="Close chat"
-              type="button"
-            >
-              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-                <path d="M18 6L6 18M6 6l12 12"/>
-              </svg>
-            </button>
-          </div>
-
-          {activeProject && (
-            <div className="chat-context-bar">
-              <span>Viewing:</span>
-              <strong>{activeProject.title}</strong>
-              <button onClick={() => setActiveProject(null)} type="button">✕</button>
-            </div>
-          )}
-
-          <div className="chat-messages" role="log" aria-live="polite">
-            {messages.map((msg, i) => (
-              <div key={i} className={`chat-msg chat-msg--${msg.role}`}>
-                <div className="chat-bubble">
-                  {msg.role === 'assistant'
-                    ? <ChatMarkdown text={msg.content} />
-                    : msg.content}
-                </div>
-              </div>
-            ))}
-            {chatting && (
-              <div className="chat-msg chat-msg--assistant">
-                <div className="chat-bubble chat-bubble--typing">
-                  <span /><span /><span />
-                </div>
-              </div>
-            )}
-            <div ref={chatEndRef} />
-          </div>
-
-          <div className="chat-input-row">
-            <input
-              ref={chatInputRef}
-              className="chat-input"
-              value={chatInput}
-              onChange={e => setChatInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') void send() }}
-              placeholder="Ask about projects, skills, experience…"
-              aria-label="Message"
-              type="text"
+        {chatOpen && (
+          <>
+            <div className="chat-backdrop" onClick={() => setChatOpen(false)} aria-hidden />
+            <TerminalWindow
+              name={name}
+              messages={messages}
+              thinking={chatting}
+              onSend={msg => void send(msg)}
+              onClose={() => setChatOpen(false)}
+              subtitle={isLive ? 'cognition_layer online' : 'cognition_layer waking up'}
+              slashCommands={[
+                { cmd: '/projects', run: () => { scrollTo('projects'); setChatOpen(false) } },
+                { cmd: '/experience', run: () => { scrollTo('experience'); setChatOpen(false) } },
+                { cmd: '/skills', run: () => { scrollTo('skills'); setChatOpen(false) } },
+                { cmd: '/contact', run: () => { scrollTo('contact'); setChatOpen(false) } },
+                { cmd: '/cv', run: () => window.open(RESUME_URL, '_blank') },
+              ]}
+              suggestions={messages.length <= 1 ? [
+                'What projects has Raj built?', 'What is Raj working on now?', 'What tech does Raj use?', 'Is Raj open to work?',
+              ] : []}
+              renderAssistant={content => <ChatMarkdown text={content} />}
             />
-            <button
-              className="chat-send"
-              onClick={() => void send()}
-              disabled={chatting || !chatInput.trim()}
-              type="button"
-              aria-label="Send message"
-            >
-              {chatting ? (
-                <span className="send-spinner" aria-hidden />
-              ) : (
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 19V5M5 12l7-7 7 7"/>
-                </svg>
-              )}
-            </button>
-          </div>
-        </div>
-        {chatOpen && <div className="chat-backdrop" onClick={() => setChatOpen(false)} aria-hidden />}
+          </>
+        )}
       </>
 
       {/* ══════════════════════════════════════════
