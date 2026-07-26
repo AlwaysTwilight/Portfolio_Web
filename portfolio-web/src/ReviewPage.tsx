@@ -53,8 +53,8 @@ export default function ReviewPage() {
   }, [])
 
   const canSubmit = useMemo(
-    () => name.trim().length > 0 && position.trim().length > 0 && text.trim().length >= 10 && status !== 'sending',
-    [name, position, text, status],
+    () => name.trim().length > 0 && position.trim().length > 0 && text.trim().length >= 10,
+    [name, position, text],
   )
 
   function toggleSkill(skill: string) {
@@ -217,7 +217,7 @@ export default function ReviewPage() {
 
               {error && <p className="rvp-error">{error}</p>}
 
-              <button className="btn-primary rvp-submit" type="submit" disabled={!canSubmit}>
+              <button className="btn-primary rvp-submit" type="submit" disabled={status === 'sending'}>
                 {status === 'sending' ? 'Sending…' : 'Submit review'}
               </button>
             </form>
